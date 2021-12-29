@@ -176,7 +176,7 @@ function! s:HexCode(color_text_in) "{{{2
 
 endfunction
 
-# DECONSTRUCTS rgb(255,128,64)
+" DECONSTRUCTS rgb(255,128,64)
 function! s:RgbColor(color_text_in) "{{{2
 
   " REGEX: COLOR EXTRACT
@@ -211,7 +211,7 @@ function! s:RgbColor(color_text_in) "{{{2
 
 endfunction
 
-# DECONSTRUCTS rgba(255,128,64,0.5)
+" DECONSTRUCTS rgba(255,128,64,0.5)
 function! s:RgbaColor(color_text_in) "{{{2
 
   let rgb_bg = s:RgbBgColor()
