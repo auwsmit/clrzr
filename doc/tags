@@ -4,8 +4,9 @@
 'g:colorizer_maxlines'	colorizer.txt	/*'g:colorizer_maxlines'*
 'g:colorizer_nomap'	colorizer.txt	/*'g:colorizer_nomap'*
 'g:colorizer_startup'	colorizer.txt	/*'g:colorizer_startup'*
-ColorClear	colorizer.txt	/*ColorClear*
-ColorHighlight	colorizer.txt	/*ColorHighlight*
-ColorToggle	colorizer.txt	/*ColorToggle*
+:ColorAlphaPosToggle	colorizer.txt	/*:ColorAlphaPosToggle*
+:ColorClear	colorizer.txt	/*:ColorClear*
+:ColorHighlight	colorizer.txt	/*:ColorHighlight*
+:ColorToggle	colorizer.txt	/*:ColorToggle*
 Colorizer	colorizer.txt	/*Colorizer*
 colorizer.txt	colorizer.txt	/*colorizer.txt*

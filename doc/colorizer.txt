@@ -1,6 +1,18 @@
 *colorizer.txt*                                    Color code highlighter.  v1.5
 *Colorizer* *'colorizer'*
 ===============================================================================
+TRUE COLOR SUPPORT
+
+Works in gVim or any terminal with true-color support.  If your terminal
+supports 24-bit color, but you are not seeing the colors, add the following
+lines to your `vimrc` and restart:
+
+  let &t_8f = "\e[38;2;%lu;%lu;%lum" " sets foreground color (ANSI true-color mode)
+  let &t_8b = "\e[48;2;%lu;%lu;%lum" " sets background color (ANSI true-color mode)
+  set termguicolors
+
+===============================================================================
+USAGE
 
 This plugin defines three commands:
 
@@ -39,11 +51,11 @@ more common so it's the default. If you want the latter, set the following:
  let g:colorizer_hex_alpha_first = 1
 
 You can toggle the recognized alpha position with:
-  *:ColorAlphaPosToggle*
+  :ColorAlphaPosToggle
 
 Note: if you modify a color string in normal mode, if the cursor is still on
 that line, it'll take 'updatetime' seconds to update. You can use
-*:ColorHighlight* (or your key mapping) again to force update.
+:ColorHighlight (or your key mapping) again to force update.
 
 ===============================================================================
 vim:ft=help:et:ts=2:sw=2:sts=2:norl
