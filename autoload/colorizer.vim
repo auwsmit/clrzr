@@ -7,72 +7,13 @@
 " 		http://www.vim.org/scripts/script.php?script_id=2150
 " Thanks To:	Niklas Hofer (Author of css_color.vim), Ingo Karkat, rykka,
 "		KrzysztofUrban, blueyed, shanesmith, UncleBill
-"
-" See plugin/colorizer.vim for more info.
+
+" TODO: more comprehensive screenshot
+" TODO: HSL, HSLA support
+" TODO: ALLOW PERCENT FOR ALPHA
 
 let s:keepcpo = &cpo
 set cpo&vim
-
-function! s:Rgb2xterm(color) "{{{1
-  " selects the nearest xterm color for a rgb value like #FF0000
-  let best_match=0
-  let smallest_distance = 10000000000
-  let r = str2nr(a:color[1:2], 16)
-  let g = str2nr(a:color[3:4], 16)
-  let b = str2nr(a:color[5:6], 16)
-  let colortable = s:GetXterm2rgbTable()
-  for c in range(0,254)
-    let d = pow(colortable[c][0]-r,2) + pow(colortable[c][1]-g,2) + pow(colortable[c][2]-b,2)
-    if d<smallest_distance
-      let smallest_distance = d
-      let best_match = c
-    endif
-  endfor
-  return best_match
-endfunction
-
-"" the 6 value iterations in the xterm color cube {{{1
-let s:valuerange = [0x00, 0x5F, 0x87, 0xAF, 0xD7, 0xFF]
-
-"" 16 basic colors {{{1
-let s:basic16 = [
-      \ [0x00, 0x00, 0x00], [0xCD, 0x00, 0x00],
-      \ [0x00, 0xCD, 0x00], [0xCD, 0xCD, 0x00],
-      \ [0x00, 0x00, 0xEE], [0xCD, 0x00, 0xCD],
-      \ [0x00, 0xCD, 0xCD], [0xE5, 0xE5, 0xE5],
-      \ [0x7F, 0x7F, 0x7F], [0xFF, 0x00, 0x00],
-      \ [0x00, 0xFF, 0x00], [0xFF, 0xFF, 0x00],
-      \ [0x5C, 0x5C, 0xFF], [0xFF, 0x00, 0xFF],
-      \ [0x00, 0xFF, 0xFF], [0xFF, 0xFF, 0xFF]]
-
-function! s:Xterm2rgb(color) "{{{1
-  " 16 basic colors
-  let r = 0
-  let g = 0
-  let b = 0
-  if a:color<16
-    let r = s:basic16[a:color][0]
-    let g = s:basic16[a:color][1]
-    let b = s:basic16[a:color][2]
-  endif
-
-  " color cube color
-  if a:color>=16 && a:color<=232
-    let l:color=a:color-16
-    let r = s:valuerange[(l:color/36)%6]
-    let g = s:valuerange[(l:color/6)%6]
-    let b = s:valuerange[l:color%6]
-  endif
-
-  " gray tone
-  if a:color>=233 && a:color<=253
-    let r=8+(a:color-232)*0x0a
-    let g=r
-    let b=r
-  endif
-  let rgb=[r,g,b]
-  return rgb
-endfunction
 
 " Color Converters {{{1
 function! s:RgbBgColor() "{{{2
@@ -258,24 +199,6 @@ function! s:FGforBGList(bg) "{{{1
   end
 endfunction
 
-" TODO: should probably be removed (misleading)
-" selects the nearest xterm color for a rgb value like #FF0000
-function! s:Rgb2xtermList(color) "{{{1
-  let best_match=0
-  let smallest_distance = 10000000000
-  let colortable = s:GetXterm2rgbTable()
-  for c in range(0,254)
-    let d = pow(colortable[c][0] - a:color[0], 2) +
-          \ pow(colortable[c][1] - a:color[1], 2) +
-          \ pow(colortable[c][2] - a:color[2], 2)
-    if d < smallest_distance
-      let smallest_distance = d
-      let best_match = c
-    endif
-  endfor
-  return best_match
-endfunction
-
 function! s:OpenDebugBuf()
   let s:debug_buf_num = bufnr('Test', 1)
   call setbufvar(s:debug_buf_num, "&buflisted", 1)
@@ -292,16 +215,10 @@ function! s:PreviewColorInLine(line_start, line_finish) "{{{1
   " SKIP PROCESSING HELPFILES (usually large)
   if getbufvar('%', '&syntax') ==? 'help' | return | endif
 
-  " LINE LIMIT
-  " TODO: number check first
+  " GET LINES FROM CURRENT BUFFER
+  " TODO: g:colorizer_maxlines?
   let lines = getline(a:line_start, a:line_finish)
-  if g:colorizer_maxlines >= 0
-    let lines = lines[:g:colorizer_maxlines]
-  endif
   if empty(lines) | return | endif
-
-  " TODO: HSL, HSLA
-  " TODO: ALLOW PERCENT FOR ALPHA
 
   " SWITCH ON FULL GRAMMAR
   let rx_nums = join(map(range(3), {i,_ -> '\s*\d{1,3}\%?\s*'}), ',')
@@ -354,20 +271,8 @@ function! s:PreviewColorInLine(line_start, line_finish) "{{{1
     " INSERT HIGHLIGHT
     let group = 'Clrzr' . hex_color
     if !hlexists(group) || s:force_group_update
-
       let fg = g:colorizer_fgcontrast < 0 ? hex_color : s:FGforBGList(rgb_color)
-
-      " &termguicolors can work outside of gVim in terminals with
-      " true-color support with the following `vimrc` settings:
-      "   let &t_8f = "\e[38;2;%lu;%lu;%lum" " set foreground color (ANSI, true-color mode)
-      "   let &t_8b = "\e[48;2;%lu;%lu;%lum" " set background color (ANSI, true-color mode)
-      "   set termguicolors
-      if has('termguicolors') && &termguicolors
-        exec join(['hi', group, 'guifg=#'.fg, 'guibg=#'.hex_color], ' ')
-      elseif &t_Co == 256
-        exec join(['hi', group, 'ctermfg='.s:Rgb2xtermList(fg), 'ctermbg='.s:Rgb2xtermList(rgb_color)], ' ')
-      endif
-
+      exec join(['hi', group, 'guifg=#'.fg, 'guibg=#'.hex_color], ' ')
     endif
 
     " INSERT MATCH PATTERN FOR HIGHLIGHT
@@ -486,17 +391,6 @@ function! colorizer#AlphaPositionToggle() "{{{1
     call colorizer#ColorHighlight(1)
   endif
 endfunction
-
-function! s:GetXterm2rgbTable() "{{{1
-  if !exists('s:table_xterm2rgb')
-    let s:table_xterm2rgb = []
-    for c in range(0, 254)
-      let s:color = s:Xterm2rgb(c)
-      call add(s:table_xterm2rgb, s:color)
-    endfor
-  endif
-  return s:table_xterm2rgb
-endfun
 
 " Setups {{{1
 "let s:ColorFinder = [function('s:HexCode'), function('s:RgbColor')] ", function('s:RgbaColor')]

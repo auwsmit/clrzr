@@ -11,7 +11,7 @@
 "
 
 " Reload guard and 'compatible' handling {{{1
-if exists("loaded_colorizer") || v:version < 700 || !(has("gui_running") || &t_Co == 256)
+if exists("loaded_colorizer") || v:version < 700 || !(has('termguicolors') && &termguicolors)
   finish
 endif
 let loaded_colorizer = 1
@@ -23,9 +23,12 @@ set cpo&vim
 if !exists('g:colorizer_maxlines')
   let g:colorizer_maxlines = -1
 endif
+
 command! -bar -bang ColorHighlight call colorizer#ColorHighlight(1, "<bang>")
 command! -bar ColorClear call colorizer#ColorClear()
 command! -bar ColorToggle call colorizer#ColorToggle()
+command! -bar ColorAlphaPosToggle call colorizer#AlphaPositionToggle()
+
 nnoremap <silent> <Plug>Colorizer :ColorToggle<CR>
 if !hasmapto("<Plug>Colorizer") && (!exists("g:colorizer_nomap") || g:colorizer_nomap == 0)
   nmap <unique> <Leader>tc <Plug>Colorizer
