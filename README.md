@@ -6,7 +6,7 @@ See the comment at the beginning of the [plugin](plugin/colorizer.vim) for more 
 ### True Color Support
 
 Works in gVim or any terminal with true-color support.  If your terminal is true-color, but
-you are not seeing the colors, add the following to your `vimrc` and restart:
+you are not seeing the colors, add the following lines to your `vimrc` and restart:
 
 ```vim
 
