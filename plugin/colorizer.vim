@@ -1,51 +1,14 @@
 " colorizer.vim	Colorize all text in the form #rrggbb or #rgb; entrance
-" Maintainer:	lilydjwg <lilydjwg@gmail.com>
-" Version:	1.4.2
 " Licence:	Vim license. See ':help license'
+" Maintainer:   Jason Stewart <support@eggplantsd.com>
+" Derived From:	https://github.com/lilydjwg/colorizer
+"               lilydjwg <lilydjwg@gmail.com>
 " Derived From: css_color.vim
 " 		http://www.vim.org/scripts/script.php?script_id=2150
 " Thanks To:	Niklas Hofer (Author of css_color.vim), Ingo Karkat, rykka,
 "		KrzysztofUrban, blueyed, shanesmith, UncleBill
 " Usage:
 "
-" This plugin defines three commands:
-"
-" 	ColorHighlight	- start/update highlighting
-" 	ColorClear      - clear all highlights
-" 	ColorToggle     - toggle highlights
-"
-" By default, <leader>tc is mapped to ColorToggle. If you want to use another
-" key map, do like this:
-" 	nmap ,tc <Plug>Colorizer
-"
-" If you want completely not to map it, set the following in your vimrc:
-"	let g:colorizer_nomap = 1
-"
-" To use solid color highlight, set this in your vimrc (later change won't
-" probably take effect unless you use ':ColorHighlight!' to force update):
-"	let g:colorizer_fgcontrast = -1
-" set it to 0 or 1 to use a softened foregroud color.
-"
-" If you don't want to enable colorizer at startup, set the following:
-"	let g:colorizer_startup = 0
-"
-" You can disable it on long buffers, for example if more than 1000 lines:
-"	let g:colorizer_maxlines = 1000
-" -1 means unlimited number of lines
-"
-" There are color strings in the format #RRGGBBAA and #AARRGGBB. The former is
-" more common so it's the default. If you want the latter, set the following:
-"	let g:colorizer_hex_alpha_first = 1
-"
-" You can toggle the recognized alpha position by
-"       call colorizer#AlphaPositionToggle()
-"
-" Note: if you modify a color string in normal mode, if the cursor is still on
-" that line, it'll take 'updatetime' seconds to update. You can use
-" :ColorHighlight (or your key mapping) again to force update.
-"
-" Performance Notice: In terminal, it may take several seconds to highlight 240
-" different colors. GUI version is much quicker.
 
 " Reload guard and 'compatible' handling {{{1
 if exists("loaded_colorizer") || v:version < 700 || !(has("gui_running") || &t_Co == 256)
