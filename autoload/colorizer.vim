@@ -10,7 +10,6 @@
 
 " TODO: more comprehensive screenshot
 " TODO: HSL, HSLA support
-" TODO: ALLOW PERCENT FOR ALPHA
 
 let s:keepcpo = &cpo
 set cpo&vim
@@ -130,7 +129,7 @@ function! s:RgbColor(color_text_in) "{{{2
 
   " EXTRACT COLOR COMPONENTS
   let rgb_matches = matchlist(a:color_text_in, rx_colors)
-  if empty(rgb_matches) | break | endif
+  if empty(rgb_matches) | return ['',[]] | endif
 
   " NORMALIZE TO NUMBER
   let lColor = []
@@ -140,7 +139,7 @@ function! s:RgbColor(color_text_in) "{{{2
       let rgb_matches[ix+1] = '\%' " ESCAPE FOR FOLLOWING MATCH REGEX
       let c_cmpnt = (c_cmpnt * 255) / 100
     endif
-    if (c_cmpnt < 0) || (c_cmpnt > 255) | break | endif
+    if (c_cmpnt < 0) || (c_cmpnt > 255) | return ['',[]] | endif
     call add(lColor, c_cmpnt)
   endfor
 
@@ -152,6 +151,11 @@ function! s:RgbColor(color_text_in) "{{{2
         \ 'printf',
         \ [ '\v<rgb\(\s*%s%s\s*,\s*%s%s\s*,\s*%s%s\s*\)'] + rgb_matches[1:6]
       \ )
+
+  " if ix_pct > -1
+  "   call s:WriteDebugBuf([pat_rgb])
+  " endif
+  " return ['',[]]
 
   return [sz_pat, lColor]
 
@@ -173,18 +177,32 @@ function! s:RgbaColor(color_text_in) "{{{2
   endif
 
   " EXTRACT ALPHA COMPONENT
-  let alpha_match = matchlist(a:color_text_in, '\v\s*(1%(\.0+)?|0%(\.\d+)?)\s*\)')
-  if empty(alpha_match) | break | endif
-  let int_alpha = float2nr(round(str2float(alpha_match[1]) * 255.0))
+  let alpha_match = matchlist(a:color_text_in, '\v\s*(\d{1,3}\%|1%(\.0+)?|0%(\.\d+)?)\s*\)')
+  if empty(alpha_match) | return ['', []] | endif
+  let alpha_suff = alpha_match[1]
 
-  " APPEND ALPHA & MIX COLOR WITH BACKGROUND
+  " NORMALIZE TO BYTE
+  let ix_pct = match(alpha_suff, '%')
+  if ix_pct > -1
+    let int_alpha = (str2nr(alpha_suff[:ix_pct-1]) * 255) / 100
+    " escape trailing percent sign
+    let alpha_suff = substitute(alpha_suff, '%', '\\\\%', '')
+  else
+    let int_alpha = float2nr(round(str2float(alpha_suff) * 255.0))
+  endif
+
+  " APPEND ALPHA TO COLOR LIST
   call add(lColor, int_alpha)
+
+  " MIX COLOR WITH BACKGROUND
   let lColor = s:IntAlphaMix(lColor, rgb_bg)
 
   " UPDATE HIGHLIGHT PATTERN
-  let pat_rgb = substitute(pat_rgb, '\\)',
-        \ printf(',\s*%s\s*\\)', substitute(alpha_match[1], '\.', '\\.', '')),
-        \ '')
+  " escape decimal point
+  let rgb_suff = substitute(alpha_suff, '\.', '\\.', '')
+  " replace alpha suffix into pattern
+  let pat_rgb = substitute(pat_rgb, '\\)', ',\\s*' . rgb_suff . '\\s*\\)','')
+
   return [pat_rgb, lColor]
 
 endfunction
@@ -225,7 +243,7 @@ function! s:PreviewColorInLine(line_start, line_finish) "{{{1
   let rx_grammar = [
         \ '%(#|0x)%(\x{8}|\x{6}|\x{4}|\x{3})',
         \ '<rgb\(' . rx_nums . '\)',
-        \ '<rgba\(' . rx_nums . ',\s*%(1%(\.0+)?|0%(\.\d+)?)\s*\)',
+        \ '<rgba\(' . rx_nums . ',\s*%(\d{1,3}\%|1%(\.0+)?|0%(\.\d+)?)\s*\)',
       \]
   let rx_daddy = '\v\c%(' . join(rx_grammar, '|') . ')'
 
