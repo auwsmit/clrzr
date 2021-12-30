@@ -33,6 +33,10 @@ endfunction
 
 function! s:IntAlphaMix(rgba_fg, rgb_bg)
 
+  if len(a:rgba_fg) < 4
+    return a:rgba_fg
+  endif
+
   let fa = a:rgba_fg[3] / 255.0
   let fb = (1.0 - fa)
   let l_blended = map(range(3), {ix, _ -> (a:rgba_fg[ix] * fa) + (a:rgb_bg[ix] * fb)})
@@ -152,9 +156,7 @@ function! s:RgbColor(color_text_in) "{{{2
         \ [ '\v<rgb\(\s*%s%s\s*,\s*%s%s\s*,\s*%s%s\s*\)'] + rgb_matches[1:6]
       \ )
 
-  " if ix_pct > -1
-  "   call s:WriteDebugBuf([pat_rgb])
-  " endif
+  " call s:WriteDebugBuf([sz_pat])
   " return ['',[]]
 
   return [sz_pat, lColor]
@@ -168,6 +170,10 @@ function! s:RgbaColor(color_text_in) "{{{2
 
   " GET BASE COLOR
   let [pat_rgb, lColor] = s:RgbColor(a:color_text_in)
+  if empty(pat_rgb) || empty(lColor)
+    return ['', []]
+  endif
+
   let pat_rgb = substitute(pat_rgb, 'rgb', 'rgba', '')
 
   " SKIP MIXING WHEN BGCOLOR UNSPECIFIED
@@ -181,18 +187,15 @@ function! s:RgbaColor(color_text_in) "{{{2
   if empty(alpha_match) | return ['', []] | endif
   let alpha_suff = alpha_match[1]
 
-  " NORMALIZE TO BYTE
+  " NORMALIZE TO BYTE, ADD TO COLOR LIST
   let ix_pct = match(alpha_suff, '%')
   if ix_pct > -1
-    let int_alpha = (str2nr(alpha_suff[:ix_pct-1]) * 255) / 100
+    call add(lColor, (str2nr(alpha_suff[:ix_pct-1]) * 255) / 100)
     " escape trailing percent sign
     let alpha_suff = escape(alpha_suff, '%')
   else
-    let int_alpha = float2nr(round(str2float(alpha_suff) * 255.0))
+    call add(lColor, float2nr(round(str2float(alpha_suff) * 255.0)))
   endif
-
-  " APPEND ALPHA TO COLOR LIST
-  call add(lColor, int_alpha)
 
   " MIX COLOR WITH BACKGROUND
   let lColor = s:IntAlphaMix(lColor, rgb_bg)
