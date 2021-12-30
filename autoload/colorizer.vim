@@ -9,16 +9,54 @@
 "		KrzysztofUrban, blueyed, shanesmith, UncleBill
 
 " TODO: more comprehensive screenshot
-" TODO: HSL, HSLA support
 
 let s:keepcpo = &cpo
 set cpo&vim
 
-" Color Converters {{{1
-function! s:RgbBgColor() "{{{2
 
+" ---------------------------  CONSTANTS  ---------------------------
+
+
+" USAGE: HUE
+const s:RXFLT = '%(\d*\.)?\d+'
+
+" USAGE: SAT / LGHTNESS
+const s:RXPCT = '%(\d*\.)?\d+\%'
+
+" USAGE: RGB / ALPHA
+const s:RXPCTORFLT = '%(\d*\.)?\d+\%?'
+
+" USAGE: PARAM SEPARATOR
+const s:CMMA = '\s*,\s*'
+
+
+" ---------------------------  DEBUG HELPERS  ---------------------------
+
+
+function! s:OpenDebugBuf()
+  let s:debug_buf_num = bufnr('Test', 1)
+  call setbufvar(s:debug_buf_num, "&buflisted", 1)
+  call bufload(s:debug_buf_num)
+endfunction
+
+
+function! s:WriteDebugBuf(object)
+  if !exists('s:debug_buf_num') | call s:OpenDebugBuf() | endif
+  let nt = type(a:object)
+  if (nt == v:t_string) || (nt == v:t_float) || (nt == v:t_number)
+    call appendbufline(s:debug_buf_num, '$', a:object)
+  else
+    call appendbufline(s:debug_buf_num, '$', js_encode(a:object))
+  endif
+endfunction
+
+
+" ---------------------------  COLOR HELPERS  ---------------------------
+
+
+" GET RGB BACKGROUND COLOR (R,G,B int list)
+function! s:RgbBgColor()
   let bg = synIDattr(synIDtrans(hlID("Normal")), "bg")
-
   if match(bg, '#\x\{6\}') > -1
     return [
       \ str2nr(bg[1:2], 16),
@@ -26,13 +64,13 @@ function! s:RgbBgColor() "{{{2
       \ str2nr(bg[5:6], 16),
     \ ]
   endif
-
   return []
-
 endfunction
 
-function! s:IntAlphaMix(rgba_fg, rgb_bg)
 
+" ALPHA MIX RGBA COLOR INTO RGB BACKGROUND COLOR
+" (int lists)
+function! s:IntAlphaMix(rgba_fg, rgb_bg)
   if len(a:rgba_fg) < 4
     return a:rgba_fg
   endif
@@ -41,8 +79,26 @@ function! s:IntAlphaMix(rgba_fg, rgb_bg)
   let fb = (1.0 - fa)
   let l_blended = map(range(3), {ix, _ -> (a:rgba_fg[ix] * fa) + (a:rgb_bg[ix] * fb)})
   return map(l_blended, {_, v -> float2nr(round(v))})
-
 endfunction
+
+
+" CHOOSES A REASONABLE FOREGROUND COLOR FOR A GIVEN BACKGROUND COLOR
+" takes an [R,G,B] int color list
+" returns an 'RRGGBB' hex color string
+function! s:FGforBGList(bg) "{{{1
+
+  " TODO: needs some work
+  let fgc = g:colorizer_fgcontrast
+  if (a:bg[0]*30 + a:bg[1]*59 + a:bg[2]*11) > 12000
+    return s:predefined_fgcolors['dark'][fgc][1:]
+  else
+    return s:predefined_fgcolors['light'][fgc][1:]
+  end
+endfunction
+
+
+" ---------------------------  COLOR/PATTERN EXTRACTORS  ---------------------------
+
 
 " DECONSTRUCTS
 " RGB: #00f #0000ff
@@ -125,26 +181,27 @@ function! s:HexCode(color_text_in) "{{{2
 
 endfunction
 
+
 " DECONSTRUCTS rgb(255,128,64)
 function! s:RgbColor(color_text_in) "{{{2
 
   " REGEX: COLOR EXTRACT
-  let rx_colors = '\v' . join(map(range(1,3), {i, _ -> '\s*(\d{1,3})(\%?)\s*'}), ',')
+  let rx_colors = join(map(range(3), {i, _ -> '(' . s:RXFLT . ')(\%?)'}), s:CMMA)
 
   " EXTRACT COLOR COMPONENTS
-  let rgb_matches = matchlist(a:color_text_in, rx_colors)
+  let rgb_matches = matchlist(a:color_text_in, '\v\(\s*' . rx_colors)
   if empty(rgb_matches) | return ['',[]] | endif
 
   " NORMALIZE TO NUMBER
   let lColor = []
   for ix in [1,3,5]
-    let c_cmpnt = str2nr(rgb_matches[ix])
+    let c_cmpnt = str2float(rgb_matches[ix])
     if rgb_matches[ix+1] == '%'
       let rgb_matches[ix+1] = '\%' " ESCAPE FOR FOLLOWING MATCH REGEX
-      let c_cmpnt = (c_cmpnt * 255) / 100
+      let c_cmpnt = (c_cmpnt * 255.0) / 100.0
     endif
-    if (c_cmpnt < 0) || (c_cmpnt > 255) | return ['',[]] | endif
-    call add(lColor, c_cmpnt)
+    if (c_cmpnt < 0.0) || (c_cmpnt > 255.0) | return ['',[]] | endif
+    call add(lColor, float2nr(round(c_cmpnt)))
   endfor
 
   " SKIP INVALID COLORS
@@ -156,81 +213,133 @@ function! s:RgbColor(color_text_in) "{{{2
         \ [ '\v<rgb\(\s*%s%s\s*,\s*%s%s\s*,\s*%s%s\s*\)'] + rgb_matches[1:6]
       \ )
 
-  " call s:WriteDebugBuf([sz_pat])
-  " return ['',[]]
+  return [sz_pat, lColor]
+
+endfunction
+
+
+" DECONSTRUCTS: hsl(195, 100%, 50%)
+function! s:HslColor(color_text_in) "{{{2
+
+  " REGEX: COLOR EXTRACT
+  let parts = [
+        \ '(' . s:RXFLT . ')',
+        \ '(' . s:RXFLT . ')\%',
+        \ '(' . s:RXFLT . ')\%',
+      \ ]
+
+  let rx_colors = '\v\(\s*' . join(parts, s:CMMA)
+
+  " EXTRACT COLOR COMPONENTS
+  let hsl_matches = matchlist(a:color_text_in, rx_colors)
+  if empty(hsl_matches) | return ['',[]] | endif
+
+  " HUE TO NUMBER
+  let hue = fmod(str2float(hsl_matches[1]), 360.0)
+  if hue < 0.0 | let hue += 360.0 | endif
+  let lColor = [hue]
+
+  " SATURATION & LIGHTNESS TO NUMBER
+  for ix in [2,3]
+    let c_cmpnt = str2float(hsl_matches[ix]) / 100.0
+    if (c_cmpnt < 0.0) || (c_cmpnt > 1.0) | return ['',[]] | endif
+    call add(lColor, c_cmpnt)
+  endfor
+
+  " SKIP INVALID COLORS
+  if len(lColor) < 3 | continue | endif
+
+  " HSL -> RGB
+  let chroma = (1.0 - abs((2.0*lColor[2]) - 1.0)) * lColor[1]
+  let hprime = hue / 60.0
+  let xval = chroma * (1.0 - abs(fmod(hprime,2.0) - 1))
+  let mval = lColor[2] - (chroma / 2.0)
+
+  if hprime < 1.0
+    let lColor = [chroma, xval, 0.0]
+  elseif hprime < 2.0
+    let lColor = [xval, chroma, 0.0]
+  elseif hprime < 3.0
+    let lColor = [0.0, chroma, xval]
+  elseif hprime < 4.0
+    let lColor = [0.0, xval, chroma]
+  elseif hprime < 5.0
+    let lColor = [xval, 0.0, chroma]
+  elseif hprime < 6.0
+    let lColor = [chroma, 0.0, xval]
+  endif
+
+  let lColor = map(lColor, {_, v -> float2nr(round((v+mval) * 255.0))})
+
+  " BUILD HIGHLIGHT PATTERN
+  let sz_pat = call(
+        \ 'printf',
+        \ [ '\v<hsl\(\s*%s\s*,\s*%s\%%\s*,\s*%s\%%\s*\)'] + hsl_matches[1:3]
+      \ )
 
   return [sz_pat, lColor]
 
 endfunction
 
-" DECONSTRUCTS rgba(255,128,64,0.5)
-function! s:RgbaColor(color_text_in) "{{{2
 
-  let rgb_bg = s:RgbBgColor()
+" HANDLES ALPHA VERSIONS OF RGB/HSL
+function! s:AlphaColor(Color_Func, pat_search, pat_replace, color_text_in) "{{{2
+
+  let hsl_bg = s:RgbBgColor()
 
   " GET BASE COLOR
-  let [pat_rgb, lColor] = s:RgbColor(a:color_text_in)
-  if empty(pat_rgb) || empty(lColor)
+  let [pat_hsl, lColor] = a:Color_Func(a:color_text_in)
+  if empty(pat_hsl) || empty(lColor)
     return ['', []]
   endif
 
-  let pat_rgb = substitute(pat_rgb, 'rgb', 'rgba', '')
+  let pat_hsl = substitute(pat_hsl, a:pat_search, a:pat_replace, '')
 
   " SKIP MIXING WHEN BGCOLOR UNSPECIFIED
-  if empty(rgb_bg)
-    let pat_rgb = substitute(pat_rgb, '\\)', ',', '')
-    return [pat_rgb, lColor]
+  if empty(hsl_bg)
+    let pat_hsl = substitute(pat_hsl, '\\)', ',', '')
+    return [pat_hsl, lColor]
   endif
 
   " EXTRACT ALPHA COMPONENT
-  let alpha_match = matchlist(a:color_text_in, '\v\s*(\d{1,3}\%|1%(\.0+)?|0%(\.\d+)?)\s*\)')
+  let alpha_match = matchlist(a:color_text_in, '\v(' . s:RXPCTORFLT . ')\s*\)')
   if empty(alpha_match) | return ['', []] | endif
   let alpha_suff = alpha_match[1]
 
-  " NORMALIZE TO BYTE, ADD TO COLOR LIST
+  " PARSE ALPHA TO [0.0, 1.0]
   let ix_pct = match(alpha_suff, '%')
+  let alpha = 2.0
   if ix_pct > -1
-    call add(lColor, (str2nr(alpha_suff[:ix_pct-1]) * 255) / 100)
+    let alpha = str2float(alpha_suff[:ix_pct-1]) / 100.0
     " escape trailing percent sign
     let alpha_suff = escape(alpha_suff, '%')
   else
-    call add(lColor, float2nr(round(str2float(alpha_suff) * 255.0)))
+    let alpha = str2float(alpha_suff)
+  endif
+
+  " SCALE TO [0, 255]
+  if alpha <= 1.0
+    call add(lColor, float2nr(round(alpha * 255.0)))
+  else
+    return ['',[]]
   endif
 
   " MIX COLOR WITH BACKGROUND
-  let lColor = s:IntAlphaMix(lColor, rgb_bg)
+  let lColor = s:IntAlphaMix(lColor, hsl_bg)
 
   " UPDATE HIGHLIGHT PATTERN
   " escape decimal point, then escape all slashes in the suffix
-  let rgb_suff = escape(escape(alpha_suff, '.'), '\')
+  let hsl_suff = escape(escape(alpha_suff, '.'), '\')
   " replace alpha suffix into pattern
-  let pat_rgb = substitute(pat_rgb, '\\)', ',\\s*' . rgb_suff . '\\s*\\)','')
+  let pat_hsl = substitute(pat_hsl, '\\)', ',\\s*' . hsl_suff . '\\s*\\)','')
 
-  return [pat_rgb, lColor]
+  return [pat_hsl, lColor]
 
 endfunction
 
-" takes an [R,G,B] int color list, returns a matching color that is visible
-function! s:FGforBGList(bg) "{{{1
-  let fgc = g:colorizer_fgcontrast
-  if (a:bg[0]*30 + a:bg[1]*59 + a:bg[2]*11) > 12000
-    return s:predefined_fgcolors['dark'][fgc][1:]
-  else
-    return s:predefined_fgcolors['light'][fgc][1:]
-  end
-endfunction
 
-function! s:OpenDebugBuf()
-  let s:debug_buf_num = bufnr('Test', 1)
-  call setbufvar(s:debug_buf_num, "&buflisted", 1)
-  call bufload(s:debug_buf_num)
-endfunction
-
-function! s:WriteDebugBuf(object)
-  if !exists('s:debug_buf_num') | call s:OpenDebugBuf() | endif
-  call appendbufline(s:debug_buf_num, '$', js_encode(a:object))
-endfunction
-
+" BUILDS HIGHLIGHTS (COLORS+PATTERNS) FOR THE CURRENT BUFFER
+" FROM line_start TO line_finish
 function! s:PreviewColorInLine(line_start, line_finish) "{{{1
 
   " SKIP PROCESSING HELPFILES (usually large)
@@ -242,11 +351,13 @@ function! s:PreviewColorInLine(line_start, line_finish) "{{{1
   if empty(lines) | return | endif
 
   " SWITCH ON FULL GRAMMAR
-  let rx_nums = join(map(range(3), {i,_ -> '\s*\d{1,3}\%?\s*'}), ',')
+  let rgb_nums = join(map(range(3), {i,_ -> s:RXPCTORFLT}), s:CMMA)
   let rx_grammar = [
         \ '%(#|0x)%(\x{8}|\x{6}|\x{4}|\x{3})',
-        \ '<rgb\(' . rx_nums . '\)',
-        \ '<rgba\(' . rx_nums . ',\s*%(\d{1,3}\%|1%(\.0+)?|0%(\.\d+)?)\s*\)',
+        \ '<rgb\(\s*' . rgb_nums . '\s*\)',
+        \ '<rgba\(\s*' . rgb_nums . s:CMMA . s:RXPCTORFLT . '\s*\)',
+        \ '<hsl\(\s*' . join([s:RXFLT, s:RXPCT, s:RXPCT], s:CMMA) . '\s*\)',
+        \ '<hsla\(\s*' . join([s:RXFLT, s:RXPCT, s:RXPCT, s:RXPCTORFLT], s:CMMA) . '\s*\)',
       \]
   let rx_daddy = '\v\c%(' . join(rx_grammar, '|') . ')'
 
@@ -274,9 +385,13 @@ function! s:PreviewColorInLine(line_start, line_finish) "{{{1
     if foundcolor[0] == '#' || foundcolor[0] == '0'
       let [pat, rgb_color] = s:HexCode(foundcolor)
     elseif foundcolor[0:3] ==? 'rgba'
-      let [pat, rgb_color] = s:RgbaColor(foundcolor)
+      let [pat, rgb_color] = s:AlphaColor(function('s:RgbColor'), 'rgb', 'rgba', foundcolor)
+    elseif foundcolor[0:3] ==? 'hsla'
+      let [pat, rgb_color] = s:AlphaColor(function('s:HslColor'), 'hsl', 'hsla', foundcolor)
     elseif foundcolor[0:2] ==? 'rgb'
       let [pat, rgb_color] = s:RgbColor(foundcolor)
+    elseif foundcolor[0:2] ==? 'hsl'
+      let [pat, rgb_color] = s:HslColor(foundcolor)
     else
       continue
     endif
@@ -327,7 +442,9 @@ function! s:TextChanged() "{{{1
   call s:PreviewColorInLine('.', '.')
 endfunction
 
+" TODO: global enable/disable, cleanup w:colormatches across windows
 " TODO: investigate frequency/necessity of autocmds
+
 function! colorizer#ColorHighlight(update, ...) "{{{1
   if exists('w:colormatches')
     if !a:update

@@ -1,6 +1,18 @@
 # Colorizer
 
-A Vim plugin to colorize all text in the form #rgb, #rgba, #rrggbb, #rrgbbaa, rgb(...), rgba(...).
+A Vim plugin to accurately highlight common textual color representations.
+
+#### Hex Modes
+	- (#|0x)RGB
+	- (#|0x)RGBA
+	- (#|0x)RRGGBB
+	- (#|0x)RRGGBBAA
+
+#### CSS Modes
+	- rgb((byte|%), (byte|%), (byte|%))
+	- rgba((byte|%), (byte|%), (byte|%), ([0,1]|%))
+	- hsl([0,360], %, %)
+	- hsla([0,360], %, %, ([0,1]|%))
 
 Rebuild helptags with `helptags ALL`, then see `:help colorizer` for more options.
 
@@ -8,7 +20,7 @@ Rebuild helptags with `helptags ALL`, then see `:help colorizer` for more option
 
 ```sh
   cd ~/.vim/pack/plugins/start
-  git clone https://github.com/BourgeoisBear/colorizer 
+  git clone https://github.com/BourgeoisBear/colorizer
 ```
 
 ### True Color Support
