@@ -186,7 +186,7 @@ function! s:RgbaColor(color_text_in) "{{{2
   if ix_pct > -1
     let int_alpha = (str2nr(alpha_suff[:ix_pct-1]) * 255) / 100
     " escape trailing percent sign
-    let alpha_suff = substitute(alpha_suff, '%', '\\\\%', '')
+    let alpha_suff = escape(alpha_suff, '%')
   else
     let int_alpha = float2nr(round(str2float(alpha_suff) * 255.0))
   endif
@@ -198,8 +198,8 @@ function! s:RgbaColor(color_text_in) "{{{2
   let lColor = s:IntAlphaMix(lColor, rgb_bg)
 
   " UPDATE HIGHLIGHT PATTERN
-  " escape decimal point
-  let rgb_suff = substitute(alpha_suff, '\.', '\\.', '')
+  " escape decimal point, then escape all slashes in the suffix
+  let rgb_suff = escape(escape(alpha_suff, '.'), '\')
   " replace alpha suffix into pattern
   let pat_rgb = substitute(pat_rgb, '\\)', ',\\s*' . rgb_suff . '\\s*\\)','')
 
