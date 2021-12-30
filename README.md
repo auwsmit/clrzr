@@ -1,6 +1,6 @@
 # Colorizer
 
-A Vim plugin to accurately highlight common textual color representations.
+A Vim plugin to accurately highlight common color representations.
 
 #### Hex Modes
 	- (#|0x)RGB
