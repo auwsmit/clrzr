@@ -1,7 +1,8 @@
 # Colorizer
 
 A Vim plugin to colorize all text in the form #rgb, #rgba, #rrggbb, #rrgbbaa, rgb(...), rgba(...).
-See the comment at the beginning of the [plugin](plugin/colorizer.vim) for more options.
+
+Rebuild helptags with `helptags ALL`, then see `:help colorizer` for more options.
 
 ### True Color Support
 
