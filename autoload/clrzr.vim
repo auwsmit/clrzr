@@ -1,4 +1,4 @@
-" colorizer.vim	Colorize all text in the form #rrggbb or #rgb; autoload functions
+" clrzr.vim	Colorize all text in the form #rrggbb or #rgb; autoload functions
 " Licence:	Vim license. See ':help license'
 " Maintainer:   Jason Stewart <support@eggplantsd.com>
 " Derived From:	https://github.com/lilydjwg/colorizer
@@ -33,21 +33,25 @@ const s:CMMA = '\s*,\s*'
 " ---------------------------  DEBUG HELPERS  ---------------------------
 
 
-function! s:OpenDebugBuf()
+function! s:WriteDebugBuf(object)
+
   let s:debug_buf_num = bufnr('Test', 1)
   call setbufvar(s:debug_buf_num, "&buflisted", 1)
   call bufload(s:debug_buf_num)
-endfunction
 
-
-function! s:WriteDebugBuf(object)
-  if !exists('s:debug_buf_num') | call s:OpenDebugBuf() | endif
   let nt = type(a:object)
   if (nt == v:t_string) || (nt == v:t_float) || (nt == v:t_number)
     call appendbufline(s:debug_buf_num, '$', a:object)
   else
     call appendbufline(s:debug_buf_num, '$', js_encode(a:object))
   endif
+
+endfunction
+
+
+" WRITE AUTOCMD EVENTS TO QUICKFIX LIST (for event inspection)
+function! s:SnoopEvent(evt)
+  echomsg [bufnr('%'), winnr(), a:evt]
 endfunction
 
 
@@ -86,9 +90,8 @@ endfunction
 " takes an [R,G,B] int color list
 " returns an 'RRGGBB' hex color string
 function! s:FGforBGList(bg) "{{{1
-
   " TODO: needs some work
-  let fgc = g:colorizer_fgcontrast
+  let fgc = g:clrzr_fgcontrast
   if (a:bg[0]*30 + a:bg[1]*59 + a:bg[2]*11) > 12000
     return s:predefined_fgcolors['dark'][fgc][1:]
   else
@@ -99,16 +102,20 @@ endfunction
 
 " ---------------------------  COLOR/PATTERN EXTRACTORS  ---------------------------
 
+function! s:IsAlphaFirst()
+  let is_alpha_first = get(w:, 'clrzr_hex_alpha_first', get(g:, 'clrzr_hex_alpha_first', 0))
+  return (is_alpha_first == 1)
+endfunction
+
 
 " DECONSTRUCTS
 " RGB: #00f #0000ff
 " RGBA: #00f8 #0000ff88
 " or ARGB: #800f #880000ff
-function! s:HexCode(color_text_in) "{{{2
+function! s:HexCode(color_text_in, rgb_bg) "{{{2
 
-  let rgb_bg = s:RgbBgColor()
   let rx_color_prefix = '%(#|0x)'
-  let is_alpha_first = (get(g:, 'colorizer_hex_alpha_first') == 1)
+  let is_alpha_first = s:IsAlphaFirst()
 
   " STRIP HEX PREFIX
   let foundcolor = tolower(substitute(a:color_text_in, '\v' . rx_color_prefix, '', ''))
@@ -125,7 +132,7 @@ function! s:HexCode(color_text_in) "{{{2
     endfor
 
     " END MATCH AT COLOR DIGITS WHEN ALPHA DISPLAY IS UNAVAILABLE
-    if empty(rgb_bg)
+    if empty(a:rgb_bg)
       if is_alpha_first
         let matchcolor = '\x\x\zs' . foundcolor[2:7] . '\ze'
       else
@@ -148,7 +155,7 @@ function! s:HexCode(color_text_in) "{{{2
     endfor
 
     " END MATCH AT COLOR DIGITS WHEN ALPHA DISPLAY IS UNAVAILABLE
-    if empty(rgb_bg)
+    if empty(a:rgb_bg)
       if is_alpha_first
         let matchcolor = '\x\zs' . foundcolor[1:3] . '\ze'
       else
@@ -171,8 +178,8 @@ function! s:HexCode(color_text_in) "{{{2
   endif
 
   " MIX WITH BACKGROUND COLOR, IF SET
-  if !empty(rgb_bg)
-    let lColor = s:IntAlphaMix(lColor, rgb_bg)
+  if !empty(a:rgb_bg)
+    let lColor = s:IntAlphaMix(lColor, a:rgb_bg)
   endif
 
   " RETURN [SYNTAX PATTERN, RGB COLOR LIST]
@@ -283,9 +290,7 @@ endfunction
 
 
 " HANDLES ALPHA VERSIONS OF RGB/HSL
-function! s:AlphaColor(Color_Func, pat_search, pat_replace, color_text_in) "{{{2
-
-  let hsl_bg = s:RgbBgColor()
+function! s:AlphaColor(Color_Func, pat_search, pat_replace, color_text_in, rgb_bg) "{{{2
 
   " GET BASE COLOR
   let [pat_hsl, lColor] = a:Color_Func(a:color_text_in)
@@ -296,7 +301,7 @@ function! s:AlphaColor(Color_Func, pat_search, pat_replace, color_text_in) "{{{2
   let pat_hsl = substitute(pat_hsl, a:pat_search, a:pat_replace, '')
 
   " SKIP MIXING WHEN BGCOLOR UNSPECIFIED
-  if empty(hsl_bg)
+  if empty(a:rgb_bg)
     let pat_hsl = substitute(pat_hsl, '\\)', ',', '')
     return [pat_hsl, lColor]
   endif
@@ -325,7 +330,7 @@ function! s:AlphaColor(Color_Func, pat_search, pat_replace, color_text_in) "{{{2
   endif
 
   " MIX COLOR WITH BACKGROUND
-  let lColor = s:IntAlphaMix(lColor, hsl_bg)
+  let lColor = s:IntAlphaMix(lColor, a:rgb_bg)
 
   " UPDATE HIGHLIGHT PATTERN
   " escape decimal point, then escape all slashes in the suffix
@@ -338,16 +343,35 @@ function! s:AlphaColor(Color_Func, pat_search, pat_replace, color_text_in) "{{{2
 endfunction
 
 
+" PLUGIN IS EFFECTIVELY OFF FOR THE CURRENT WINDOW
+" WHEN `w:clrzr_matches` IS NOT A DICT
+function! s:IsEnabledInWindow()
+  return exists('w:clrzr_matches') && (type(w:clrzr_matches) == v:t_dict)
+endfunction
+
+
 " BUILDS HIGHLIGHTS (COLORS+PATTERNS) FOR THE CURRENT BUFFER
-" FROM line_start TO line_finish
-function! s:PreviewColorInLine(line_start, line_finish) "{{{1
+" FROM l_first TO l_last
+function! s:PreviewColorInLine(l_first, l_last) "{{{1
+
+  if !s:IsEnabledInWindow() | return | endif
 
   " SKIP PROCESSING HELPFILES (usually large)
   if getbufvar('%', '&syntax') ==? 'help' | return | endif
 
+  let l_range = sort([
+        \ (type(a:l_first) == v:t_string) ? line(a:l_first) : a:l_first,
+        \ (type(a:l_last) == v:t_string) ? line(a:l_last) : a:l_last,
+        \ ])
+
+  " ONLY PARSE UP TO g:clrzr_maxlines
+  if g:clrzr_maxlines > 0
+    if l_range[0] > g:clrzr_maxlines | return | endif
+    if l_range[1] > g:clrzr_maxlines | let l_range[1] = g:clrzr_maxlines | endif
+  endif
+
   " GET LINES FROM CURRENT BUFFER
-  " TODO: g:colorizer_maxlines?
-  let lines = getline(a:line_start, a:line_finish)
+  let lines = getline(l_range[0], l_range[1])
   if empty(lines) | return | endif
 
   " SWITCH ON FULL GRAMMAR
@@ -360,6 +384,8 @@ function! s:PreviewColorInLine(line_start, line_finish) "{{{1
         \ '<hsla\(\s*' . join([s:RXFLT, s:RXPCT, s:RXPCT, s:RXPCTORFLT], s:CMMA) . '\s*\)',
       \]
   let rx_daddy = '\v\c%(' . join(rx_grammar, '|') . ')'
+
+  let rgb_bg = s:RgbBgColor()
 
   " ITERATE THROUGH LINES
   let place = 0
@@ -383,11 +409,11 @@ function! s:PreviewColorInLine(line_start, line_finish) "{{{1
     let pat = ''
     let rgb_color = []
     if foundcolor[0] == '#' || foundcolor[0] == '0'
-      let [pat, rgb_color] = s:HexCode(foundcolor)
+      let [pat, rgb_color] = s:HexCode(foundcolor, rgb_bg)
     elseif foundcolor[0:3] ==? 'rgba'
-      let [pat, rgb_color] = s:AlphaColor(function('s:RgbColor'), 'rgb', 'rgba', foundcolor)
+      let [pat, rgb_color] = s:AlphaColor(function('s:RgbColor'), 'rgb', 'rgba', foundcolor, rgb_bg)
     elseif foundcolor[0:3] ==? 'hsla'
-      let [pat, rgb_color] = s:AlphaColor(function('s:HslColor'), 'hsl', 'hsla', foundcolor)
+      let [pat, rgb_color] = s:AlphaColor(function('s:HslColor'), 'hsl', 'hsla', foundcolor, rgb_bg)
     elseif foundcolor[0:2] ==? 'rgb'
       let [pat, rgb_color] = s:RgbColor(foundcolor)
     elseif foundcolor[0:2] ==? 'hsl'
@@ -400,154 +426,202 @@ function! s:PreviewColorInLine(line_start, line_finish) "{{{1
       continue
     endif
 
-    " NOTE: pattern & color must be tracked independently, since
-    "       multiple alpha patterns may map to the same highlight color
-    let hex_color = call('printf', ['%02x%02x%02x'] + rgb_color)
+    " FOR NEW PATTERNS
+    if !has_key(w:clrzr_matches, pat)
 
-    " INSERT HIGHLIGHT
-    let group = 'Clrzr' . hex_color
-    if !hlexists(group) || s:force_group_update
-      let fg = g:colorizer_fgcontrast < 0 ? hex_color : s:FGforBGList(rgb_color)
+      " NOTE: pattern & color must be tracked independently, since
+      "       multiple alpha patterns may map to the same highlight color
+      let hex_color = call('printf', ['%02x%02x%02x'] + rgb_color)
+
+      " INSERT HIGHLIGHT
+      " NOTE: always do this (even when :hl group exists) to accommodate
+      "       :colorscheme changes, since highlight groups are never
+      "       truly deleted -- there goes my hlexists() optimization
+      let group = 'Clrzr' . hex_color
+      let fg = g:clrzr_fgcontrast < 0 ? hex_color : s:FGforBGList(rgb_color)
       exec join(['hi', group, 'guifg=#'.fg, 'guibg=#'.hex_color], ' ')
-    endif
 
-    " INSERT MATCH PATTERN FOR HIGHLIGHT
-    if !exists('w:colormatches') || !has_key(w:colormatches, pat)
-      let w:colormatches[pat] = matchadd(group, pat)
+      " INSERT MATCH PATTERN FOR HIGHLIGHT
+      let w:clrzr_matches[pat] = matchadd(group, pat)
+
     endif
 
   endwhile
 
 endfunction
 
-function! s:CursorMoved() "{{{1
-  if !exists('w:colormatches')
-    return
-  endif
-  if exists('b:colorizer_last_update')
-    if b:colorizer_last_update == b:changedtick
-      " Nothing changed
-      return
-    endif
-  endif
-  call s:PreviewColorInLine('.', '.')
-  let b:colorizer_last_update = b:changedtick
-endfunction
 
-function! s:TextChanged() "{{{1
-  if !exists('w:colormatches')
-    return
-  endif
-  echomsg "TextChanged"
-  call s:PreviewColorInLine('.', '.')
-endfunction
-
-" TODO: global enable/disable, cleanup w:colormatches across windows
-" TODO: investigate frequency/necessity of autocmds
-
-function! colorizer#ColorHighlight(update, ...) "{{{1
-  if exists('w:colormatches')
-    if !a:update
-      return
-    endif
-    call s:ClearMatches()
-  endif
-  if (g:colorizer_maxlines > 0) && (g:colorizer_maxlines <= line('$'))
-    return
-  end
-  let w:colormatches = {}
-  if g:colorizer_fgcontrast != s:saved_fgcontrast || (exists("a:1") && a:1 == '!')
-    let s:force_group_update = 1
-  endif
-  call s:PreviewColorInLine(1, '$')
-  let s:force_group_update = 0
-  let s:saved_fgcontrast = g:colorizer_fgcontrast
-  augroup Colorizer
-    au!
-    if exists('##TextChanged')
-      autocmd TextChanged * silent call s:TextChanged()
-      if v:version > 704 || v:version == 704 && has('patch143')
-        autocmd TextChangedI * silent call s:TextChanged()
-      else
-        " TextChangedI does not work as expected
-        autocmd CursorMovedI * silent call s:CursorMoved()
-      endif
-    else
-      autocmd CursorMoved,CursorMovedI * silent call s:CursorMoved()
-    endif
-    " rgba handles differently, so need updating
-    autocmd GUIEnter * silent call colorizer#ColorHighlight(1)
-    autocmd BufEnter * silent call colorizer#ColorHighlight(1)
-    autocmd WinEnter * silent call colorizer#ColorHighlight(1)
-    autocmd ColorScheme * let s:force_group_update=1 | silent call colorizer#ColorHighlight(1)
-  augroup END
-endfunction
-
-function! colorizer#ColorClear() "{{{1
-  augroup Colorizer
-    au!
-  augroup END
-  augroup! Colorizer
+function s:ForeachWindow(Func)
   let save_tab = tabpagenr()
   let save_win = winnr()
-  tabdo windo call s:ClearMatches()
-  exe 'tabn '.save_tab
-  exe save_win . 'wincmd w'
+  tabdo windo call a:Func()
+  execute 'tabn ' . save_tab
+  execute save_win . 'wincmd w'
 endfunction
 
-function! s:ClearMatches() "{{{1
-  if !exists('w:colormatches')
-    return
-  endif
-  for i in values(w:colormatches)
+
+" CLEAR HIGHLIGHTS IN CURRENT WINDOW
+function! s:ClearWindow() "{{{1
+
+  if !s:IsEnabledInWindow() | return | endif
+
+  " DELETE MATCHES
+  for i in values(w:clrzr_matches)
     try
       call matchdelete(i)
     catch /.*/
       " matches have been cleared in other ways, e.g. user has called clearmatches()
     endtry
   endfor
-  unlet w:colormatches
+
+  let w:clrzr_matches = {}
+
 endfunction
 
-function! colorizer#ColorToggle() "{{{1
-  if exists('#Colorizer')
-    call colorizer#ColorClear()
-    echomsg 'Disabled color code highlighting.'
+
+function! s:EnableWindow()
+  if !s:IsEnabledInWindow()
+    let w:clrzr_matches = {}
+    call clrzr#ColorHighlight(0)
+  endif
+endfunction
+
+
+function! s:DisableWindow()
+  call s:ClearWindow()
+  if exists('w:clrzr_matches') | unlet w:clrzr_matches | endif
+endfunction
+
+
+function! s:ReparseWindow()
+  call s:PreviewColorInLine(1, '$')
+endfunction
+
+
+function! clrzr#ColorHighlight(rebuild_all)
+
+  if !s:IsEnabledInWindow() | return | endif
+
+  if a:rebuild_all || (g:clrzr_fgcontrast != s:saved_fgcontrast)
+    call s:ForeachWindow(function('s:ClearWindow'))
+  endif
+
+  " REPARSE ALL WINDOWS IN `a:clear_all` MODE
+  if a:rebuild_all
+    call s:ForeachWindow(function('s:ReparseWindow'))
   else
-    call colorizer#ColorHighlight(0)
-    echomsg 'Enabled color code highlighting.'
+    call s:ReparseWindow()
+  endif
+
+  let s:saved_fgcontrast = g:clrzr_fgcontrast
+
+endfunction
+
+
+function! clrzr#Refresh()
+  call s:DisableWindow()
+  call s:EnableWindow()
+endfunction
+
+
+" TOGGLES COLOR HIGHLIGHTING IN CURRENT WINDOW
+function! clrzr#ToggleWindow()
+  if s:IsEnabledInWindow()
+    call s:DisableWindow()
+  else
+    call s:EnableWindow()
   endif
 endfunction
 
-function! colorizer#AlphaPositionToggle() "{{{1
-  if exists('#Colorizer')
-    if get(g:, 'colorizer_hex_alpha_first') == 1
-      let g:colorizer_hex_alpha_first = 0
-    else
-      let g:colorizer_hex_alpha_first = 1
-    endif
-    call colorizer#ColorHighlight(1)
+
+" TOGGLES ALPHA COMPONENT POSITION FOR HEX COLORS IN CURRENT WINDOW
+function! clrzr#AlphaPosToggleWindow()
+  if s:IsAlphaFirst()
+    let w:clrzr_hex_alpha_first = 0
+  else
+    let w:clrzr_hex_alpha_first = 1
   endif
+  call s:ClearWindow()
+  call clrzr#ColorHighlight(0)
 endfunction
 
-" Setups {{{1
-"let s:ColorFinder = [function('s:HexCode'), function('s:RgbColor')] ", function('s:RgbaColor')]
-let s:force_group_update = 0
-let s:predefined_fgcolors = {}
-let s:predefined_fgcolors['dark']  = ['#444444', '#222222', '#000000']
-let s:predefined_fgcolors['light'] = ['#bbbbbb', '#dddddd', '#ffffff']
-if !exists("g:colorizer_fgcontrast")
+
+function! clrzr#Enable()
+
+  augroup Colorizer
+
+    autocmd!
+
+    " NOTE: for event investigations
+    " if 0
+    "   autocmd BufReadPost * call s:SnoopEvent('BufReadPost')
+    "   autocmd FileReadPost * call s:SnoopEvent('FileReadPost')
+    "   autocmd StdinReadPost * call s:SnoopEvent('StdinReadPost')
+    "   " ...
+    " endif
+
+    " HIGHLIGHTS ARE PER-WINDOW, SO RE-BUILD HIGHLIGHTS,
+    " EVEN WITH FILES PREVIOUSLY LOADED IN DIFFERENT WINDOWS
+    autocmd WinNew * call s:EnableWindow()
+
+    " REBUILD HIGHLIGHTS AFTER READS
+    autocmd BufReadPost,FileReadPost,StdinReadPost,FileChangedShellPost
+          \ * call clrzr#ColorHighlight(0)
+
+    " NOTE: FilterReadPost isn't triggered when `shelltemp` is off,
+    "       but ShellFilterPost is
+    autocmd ShellFilterPost * call clrzr#ColorHighlight(0)
+
+    " FORCE-REBUILD HIGHLIGHTS AFTER COLORSCHEME CHANGE
+    " (to re-blend alpha colors with new background color)
+    " NOTE: refreshes all windows in case bg color changed
+    autocmd ColorScheme * call clrzr#ColorHighlight(1)
+
+    " NOTE: I don't care about updates while a popup is open, so just TCI.
+    autocmd TextChangedI * call s:PreviewColorInLine('.', '.')
+
+  augroup END
+
+  call s:ForeachWindow(function('s:EnableWindow'))
+
+endfunction
+
+
+" REMOVE AUTOGROUP & CLEAR HIGHLIGHTS ACROSS ALL WINDOWS
+function! clrzr#Disable()
+  augroup Colorizer
+    au!
+  augroup END
+  augroup! Colorizer
+  call s:ForeachWindow(function('s:DisableWindow'))
+endfunction
+
+
+" ---------------------------  SETUP  ---------------------------
+
+let s:predefined_fgcolors = {
+  \ 'dark':  ['#444444', '#222222', '#000000'],
+  \ 'light': ['#bbbbbb', '#dddddd', '#ffffff'],
+\}
+
+if !exists("g:clrzr_fgcontrast")
+
   " Default to black / white
-  let g:colorizer_fgcontrast = len(s:predefined_fgcolors['dark']) - 1
-elseif g:colorizer_fgcontrast >= len(s:predefined_fgcolors['dark'])
-  echohl WarningMsg
-  echo "g:colorizer_fgcontrast value invalid, using default"
-  echohl None
-  let g:colorizer_fgcontrast = len(s:predefined_fgcolors['dark']) - 1
-endif
-let s:saved_fgcontrast = g:colorizer_fgcontrast
+  let g:clrzr_fgcontrast = len(s:predefined_fgcolors['dark']) - 1
 
-" Restoration and modelines {{{1
+elseif g:clrzr_fgcontrast >= len(s:predefined_fgcolors['dark'])
+
+  echohl WarningMsg
+  echo "g:clrzr_fgcontrast value invalid, using default"
+  echohl None
+  let g:clrzr_fgcontrast = len(s:predefined_fgcolors['dark']) - 1
+
+endif
+
+let s:saved_fgcontrast = g:clrzr_fgcontrast
+
+" Restoration and modelines
 let &cpo = s:keepcpo
 unlet s:keepcpo
+
 " vim:ft=vim:fdm=marker:fmr={{{,}}}:ts=8:sw=2:sts=2:et

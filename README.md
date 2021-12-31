@@ -1,4 +1,4 @@
-# Colorizer
+# clrzr
 
 A Vim plugin to accurately highlight common color representations.
 
@@ -14,16 +14,16 @@ A Vim plugin to accurately highlight common color representations.
 	- hsl([0,360], %, %)
 	- hsla([0,360], %, %, ([0,1]|%))
 
-Rebuild helptags with `helptags ALL`, then see `:help colorizer` for more options.
+Rebuild helptags with `helptags ALL`, then see `:help clrzr` for more options.
 
 ### Installation
 
 ```sh
   cd ~/.vim/pack/plugins/start
-  git clone https://github.com/BourgeoisBear/colorizer
+  git clone https://github.com/BourgeoisBear/clrzr
 ```
 
-### True Color Support
+### True-Color Support
 
 Works in gVim or any terminal with true-color support.  If your terminal is true-color, but
 you are not seeing the colors, add the following lines to your `vimrc` and restart:
