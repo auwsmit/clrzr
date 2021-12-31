@@ -2,6 +2,19 @@
 
 A Vim plugin to accurately highlight common color representations.
 
+### Screenshots
+
+![screenshot](clrzr_screenshot.png)
+
+The left screen shows `colortest.txt` when the current `:colorscheme` supplies a
+hex `#RRGGBB` background color for the `Normal` highlight group.  This allows us
+to blend alpha values with the current background color.
+
+The right screen shows the same file when the background color is either supplied
+as a palette index, or omitted.  In this case, we ignore the alpha term and
+exclude it from the highlight, since we no longer have a precise color value
+to blend with.
+
 #### Hex Modes
 	- (#|0x)RGB
 	- (#|0x)RGBA
@@ -37,14 +50,6 @@ you are not seeing the colors, add the following lines to your `vimrc` and resta
 
   set termguicolors
 ```
-
-### Screenshots
-
-![screenshot](screenshot.png)
-
-![screenshot](screenshot-2.png)
-The left screen shows `colortest.txt` in Vim in xfce4-terminal.
-The right screen shows `colortest.txt` in gVim.
 
 ### Origin
 
