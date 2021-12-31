@@ -27,14 +27,13 @@ to blend with.
 	- hsl([0,360], %, %)
 	- hsla([0,360], %, %, ([0,1]|%))
 
-Rebuild helptags with `helptags ALL`, then see `:help clrzr` for more options.
-
 ### Installation
 
 ```sh
   cd ~/.vim/pack/plugins/start
   git clone https://github.com/BourgeoisBear/clrzr
 ```
+Rebuild helptags with `helptags ALL`, then see `:help clrzr` for more options.
 
 ### True-Color Support
 

@@ -8,8 +8,6 @@
 " Thanks To:	Niklas Hofer (Author of css_color.vim), Ingo Karkat, rykka,
 "		KrzysztofUrban, blueyed, shanesmith, UncleBill
 
-" TODO: more comprehensive screenshot
-
 let s:keepcpo = &cpo
 set cpo&vim
 
