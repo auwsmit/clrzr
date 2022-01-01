@@ -21,31 +21,19 @@ BEGIN {
 
 {
 	szLine = $1
-	# print "L: " szLine
-	if( szLine == "--END--" ) {
-		print szLine
-		fflush()
-	}
-	else {
+	while( 1 ) {
 
-		while( 1 ) {
+		match(szLine, rExpr)
 
-			match(szLine, rExpr)
-
-			if( RLENGTH < 0 ) {
-				break
-			}
-
-			print substr(szLine, RSTART, RLENGTH)
-			fflush()
-			szLine = substr(szLine, RSTART + RLENGTH)
+		if( RLENGTH < 0 ) {
+			break
 		}
+
+		print substr(szLine, RSTART, RLENGTH)
+		fflush()
+		szLine = substr(szLine, RSTART + RLENGTH)
 	}
 }
-
-# END {
-# 	print "==================================  END  =================================="
-# }
 
 # GAWK: --sandbox
 # AWK: --safe
