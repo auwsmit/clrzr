@@ -49,7 +49,12 @@ endfunction
 
 " WRITE AUTOCMD EVENTS TO QUICKFIX LIST (for event inspection)
 function! s:SnoopEvent(evt)
-  echomsg [bufnr('%'), winnr(), a:evt]
+  echomsg [bufnr('%'), win_getid(), a:evt]
+endfunction
+
+
+function! s:Debug(var)
+  if 0 | echomsg a:var | endif
 endfunction
 
 
@@ -372,70 +377,90 @@ function! s:PreviewColorInLine(l_first, l_last) "{{{1
   let lines = getline(l_range[0], l_range[1])
   if empty(lines) | return | endif
 
-  " GET CURRENT BACKGROUND COLOR FOR ALPHA BLENDING
-  let rgb_bg = s:RgbBgColor()
+  " CACHE CURRENT BACKGROUND COLOR FOR ALPHA BLENDING
+  let s:rgb_bg = s:RgbBgColor()
 
-  " LET AWK DO THE HEAVY LIFTING
-  const awk_script = expand('<sfile>:p:h') . '/autoload/clrzr.awk'
-  const awk_cmd = 'awk -f ' . shellescape(awk_script) . ' | sort | uniq'
-  let lMatches = systemlist(awk_cmd, lines)
-
-  " ITERATE THROUGH LINES
-  for foundcolor in lMatches
-
-    " EXTRACT COLOR INFORMATION FROM SYNTAX
-    " RETURNS [syntax_pattern, rgb_color_list]
-    let pat = ''
-    let rgb_color = []
-    if foundcolor[0] == '#' || foundcolor[0] == '0'
-      let [pat, rgb_color] = s:HexCode(foundcolor, rgb_bg)
-    elseif foundcolor[0:3] ==? 'rgba'
-      let [pat, rgb_color] = s:AlphaColor(function('s:RgbColor'), 'rgb', 'rgba', foundcolor, rgb_bg)
-    elseif foundcolor[0:3] ==? 'hsla'
-      let [pat, rgb_color] = s:AlphaColor(function('s:HslColor'), 'hsl', 'hsla', foundcolor, rgb_bg)
-    elseif foundcolor[0:2] ==? 'rgb'
-      let [pat, rgb_color] = s:RgbColor(foundcolor)
-    elseif foundcolor[0:2] ==? 'hsl'
-      let [pat, rgb_color] = s:HslColor(foundcolor)
+  " WRITE LINES TO AWK CHANNEL
+  if exists('w:clrzr_awk_chan')
+    let sts = ch_status(w:clrzr_awk_chan)
+    if sts == 'open'
+      call s:Debug(['WRITE LINES', len(lines), 'WIN', win_getid(), w:clrzr_awk_chan])
+      for line in lines
+        call ch_sendraw(w:clrzr_awk_chan, line . "\n")
+      endfor
     else
-      continue
+      echomsg "AWK CHANNEL STATUS = " . sts
     endif
+  else
+    echomsg "AWK CHANNEL NOT SET!"
+  endif
 
-    if empty(pat) || empty(rgb_color)
-      continue
-    endif
+endfunction
 
-    " FOR NEW PATTERNS
-    if !has_key(w:clrzr_matches, pat)
 
-      " NOTE: pattern & color must be tracked independently, since
-      "       multiple alpha patterns may map to the same highlight color
-      let hex_color = call('printf', ['%02x%02x%02x'] + rgb_color)
+" EXTRACTS COLOR DATA FROM MATCHES & CREATES HIGHLIGHT GROUPS
+function! s:ProcessMatch(match)
 
-      " INSERT HIGHLIGHT
-      " NOTE: always do this (even when :hl group exists) to accommodate
-      "       :colorscheme changes, since highlight groups are never
-      "       truly deleted -- there goes my hlexists() optimization
-      let group = 'Clrzr' . hex_color
-      let fg = g:clrzr_fgcontrast < 0 ? hex_color : s:FGforBGList(rgb_color)
-      exec join(['hi', group, 'guifg=#'.fg, 'guibg=#'.hex_color], ' ')
+  if !s:IsEnabledInWindow() | return | endif
 
-      " INSERT MATCH PATTERN FOR HIGHLIGHT
-      let w:clrzr_matches[pat] = matchadd(group, pat)
+  " EXTRACT COLOR INFORMATION FROM SYNTAX
+  " RETURNS [syntax_pattern, rgb_color_list]
+  let pat = ''
+  let rgb_color = []
+  if a:match[0] == '#' || a:match[0] == '0'
+    let [pat, rgb_color] = s:HexCode(a:match, s:rgb_bg)
+  elseif a:match[0:3] ==? 'rgba'
+    let [pat, rgb_color] = s:AlphaColor(function('s:RgbColor'), 'rgb', 'rgba', a:match, s:rgb_bg)
+  elseif a:match[0:3] ==? 'hsla'
+    let [pat, rgb_color] = s:AlphaColor(function('s:HslColor'), 'hsl', 'hsla', a:match, s:rgb_bg)
+  elseif a:match[0:2] ==? 'rgb'
+    let [pat, rgb_color] = s:RgbColor(a:match)
+  elseif a:match[0:2] ==? 'hsl'
+    let [pat, rgb_color] = s:HslColor(a:match)
+  else
+    return
+  endif
 
-    endif
+  if empty(pat) || empty(rgb_color)
+    return
+  endif
 
-  endfor
+  " FOR NEW PATTERNS
+  if has_key(w:clrzr_matches, pat) | return | endif
+
+  " NOTE: pattern & color must be tracked independently, since
+  "       multiple alpha patterns may map to the same highlight color
+  let hex_color = call('printf', ['%02x%02x%02x'] + rgb_color)
+
+  " INSERT HIGHLIGHT
+  " NOTE: always do this (even when :hl group exists) to accommodate
+  "       :colorscheme changes, since highlight groups are never
+  "       truly deleted -- there goes my hlexists() optimization
+  let group = 'Clrzr' . hex_color
+  let fg = g:clrzr_fgcontrast < 0 ? hex_color : s:FGforBGList(rgb_color)
+  exec join(['hi', group, 'guifg=#'.fg, 'guibg=#'.hex_color], ' ')
+
+  " INSERT MATCH PATTERN FOR HIGHLIGHT
+  " TODO: make sure these stay lowercase
+  " TODO: minimize stored matches : see getwininfo(), clrzr_matches
+  let w:clrzr_matches[pat] = matchadd(group, pat)
 
 endfunction
 
 
 function s:ForeachWindow(Func)
-  let save_tab = tabpagenr()
-  let save_win = winnr()
-  tabdo windo call a:Func()
-  execute 'tabn ' . save_tab
-  execute save_win . 'wincmd w'
+
+  let lInf = getwininfo()
+  for inf in lInf
+    call win_execute(inf.winid, 'call a:Func()')
+  endfor
+
+  " let save_tab = tabpagenr()
+  " let save_win = winnr()
+  " tabdo windo call a:Func()
+  " execute 'tabn ' . save_tab
+  " execute save_win . 'wincmd w'
+
 endfunction
 
 
@@ -458,17 +483,85 @@ function! s:ClearWindow() "{{{1
 endfunction
 
 
+function! s:AwkErr(chan, msg)
+  " TODO: disable window w/ error
+  echomsg ['ERR', a:msg, 'WIN', win_getid()]
+endfunction
+
+function! s:AwkExit(job_id, exit)
+  " TODO: disable window w/ error
+  call s:Debug(['EXIT', a:job_id, a:exit, 'WIN', win_getid()])
+endfunction
+
+
+function! s:AwkOut(chan, msg)
+
+  " GET WINDOW ID FROM CHANNEL
+  let c_info = ch_info(a:chan)
+  let win_id = g:clrzr_chanid2winid[c_info.id]
+
+  " CALL COLOR MATCHER IN THE CORRECT WINDOW
+  call win_execute(win_id, 'call s:ProcessMatch(a:msg)')
+  return
+
+endfunction
+
+
+const s:CLRZR_AWK_SCRIPT_PATH = expand('<sfile>:p:h') . '/clrzr.awk'
+let g:clrzr_chanid2winid = {}
 function! s:EnableWindow()
-  if !s:IsEnabledInWindow()
-    let w:clrzr_matches = {}
-    call clrzr#ColorHighlight(0)
+
+  if s:IsEnabledInWindow() | return | endif
+
+  call s:Debug(['ENABLE', win_getid()])
+
+  " TODO: ' | sort | uniq'
+  let w:clrzr_awk_job = job_start(['awk', '-f', s:CLRZR_AWK_SCRIPT_PATH], {
+        \ 'in_mode': 'nl',
+        \ 'out_mode': 'nl',
+        \ 'err_mode': 'nl',
+        \ 'err_cb': function('s:AwkErr'),
+        \ 'exit_cb': function('s:AwkExit'),
+        \ 'out_cb': function('s:AwkOut'),
+        \ 'noblock': 0,
+        \ 'drop': 'auto',
+        \ 'stoponexit': 'term',
+        \ 'pty': 0,
+      \ })
+
+  " NOTE: string(chan) == 'channel fail' is error
+  let w:clrzr_awk_chan = job_getchannel(w:clrzr_awk_job)
+  if string(w:clrzr_awk_chan) == 'channel fail'
+    unlet w:clrzr_awk_chan
   endif
+
+  let c_info = ch_info(w:clrzr_awk_chan)
+  let g:clrzr_chanid2winid[c_info.id] = win_getid()
+
+  let w:clrzr_matches = {}
+  call clrzr#ColorHighlight(0)
+
 endfunction
 
 
 function! s:DisableWindow()
+
   call s:ClearWindow()
-  if exists('w:clrzr_matches') | unlet w:clrzr_matches | endif
+
+  " END JOB, REMOVE chan2winid MAPPING
+  if exists('w:clrzr_awk_job')
+    let c_info = ch_info(w:clrzr_awk_chan)
+    call remove(g:clrzr_chanid2winid, c_info.id)
+    call job_stop(w:clrzr_awk_job)
+  endif
+
+  " REMOVE clrzr_ WINDOW STATE
+  for wk in keys(w:)
+    if match(wk, '^clrzr_') > -1
+      call remove(w:, wk)
+    endif
+  endfor
+
 endfunction
 
 
@@ -485,7 +578,6 @@ function! clrzr#ColorHighlight(rebuild_all)
     call s:ForeachWindow(function('s:ClearWindow'))
   endif
 
-  " REPARSE ALL WINDOWS IN `a:clear_all` MODE
   if a:rebuild_all
     call s:ForeachWindow(function('s:ReparseWindow'))
   else
@@ -542,6 +634,11 @@ function! clrzr#Enable()
     " HIGHLIGHTS ARE PER-WINDOW, SO RE-BUILD HIGHLIGHTS,
     " EVEN WITH FILES PREVIOUSLY LOADED IN DIFFERENT WINDOWS
     autocmd WinNew * call s:EnableWindow()
+
+    " RESCAN ON WINDOW SWITCH (case: edit to one buffer in mulitple splits)
+    autocmd WinEnter * call clrzr#ColorHighlight(0)
+
+    " TODO: what about BufEnter? is it worth it?
 
     " REBUILD HIGHLIGHTS AFTER READS
     autocmd BufReadPost,FileReadPost,StdinReadPost,FileChangedShellPost
