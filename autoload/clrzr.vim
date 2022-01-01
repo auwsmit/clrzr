@@ -372,35 +372,16 @@ function! s:PreviewColorInLine(l_first, l_last) "{{{1
   let lines = getline(l_range[0], l_range[1])
   if empty(lines) | return | endif
 
-  " SWITCH ON FULL GRAMMAR
-  let rgb_nums = join(map(range(3), {i,_ -> s:RXPCTORFLT}), s:CMMA)
-  let rx_grammar = [
-        \ '%(#|0x)%(\x{8}|\x{6}|\x{4}|\x{3})',
-        \ '<rgb\(\s*' . rgb_nums . '\s*\)',
-        \ '<rgba\(\s*' . rgb_nums . s:CMMA . s:RXPCTORFLT . '\s*\)',
-        \ '<hsl\(\s*' . join([s:RXFLT, s:RXPCT, s:RXPCT], s:CMMA) . '\s*\)',
-        \ '<hsla\(\s*' . join([s:RXFLT, s:RXPCT, s:RXPCT, s:RXPCTORFLT], s:CMMA) . '\s*\)',
-      \]
-  let rx_daddy = '\v\c%(' . join(rx_grammar, '|') . ')'
-
+  " GET CURRENT BACKGROUND COLOR FOR ALPHA BLENDING
   let rgb_bg = s:RgbBgColor()
 
-  " ITERATE THROUGH LINES
-  let place = 0
-  let ix_line = 0
-  while 1
+  " LET AWK DO THE HEAVY LIFTING
+  const awk_script = expand('<sfile>:p:h') . '/autoload/clrzr.awk'
+  const awk_cmd = 'awk -f ' . shellescape(awk_script) . ' | sort | uniq'
+  let lMatches = systemlist(awk_cmd, lines)
 
-    " FIND NEXT COLOR TOKEN
-    let [foundcolor, lastPlace, place] = matchstrpos(lines[ix_line], rx_daddy, place)
-    if lastPlace < 0
-      let ix_line += 1
-      if ix_line < len(lines)
-        let place = 0
-        continue
-      else
-        break
-      endif
-    endif
+  " ITERATE THROUGH LINES
+  for foundcolor in lMatches
 
     " EXTRACT COLOR INFORMATION FROM SYNTAX
     " RETURNS [syntax_pattern, rgb_color_list]
@@ -444,7 +425,7 @@ function! s:PreviewColorInLine(l_first, l_last) "{{{1
 
     endif
 
-  endwhile
+  endfor
 
 endfunction
 
