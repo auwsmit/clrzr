@@ -1,4 +1,4 @@
-" clrzr.vim	Colorize all text in the form #rrggbb or #rgb; autoload functions
+" clrzr.vim     Highlights common color representations
 " Licence:	Vim license. See ':help license'
 " Maintainer:   Jason Stewart <support@eggplantsd.com>
 " Derived From:	https://github.com/lilydjwg/colorizer
@@ -186,7 +186,7 @@ function! s:HexCode(color_text_in, rgb_bg) "{{{2
   endif
 
   " RETURN [SYNTAX PATTERN, RGB COLOR LIST]
-  let sz_pat = join(['\v\c', rx_color_prefix, matchcolor, '>'], '')
+  let sz_pat = join([rx_color_prefix, matchcolor, '>'], '')
   return [sz_pat, lColor[0:2]]
 
 endfunction
@@ -220,7 +220,7 @@ function! s:RgbColor(color_text_in) "{{{2
   " BUILD HIGHLIGHT PATTERN
   let sz_pat = call(
         \ 'printf',
-        \ [ '\v<rgb\(\s*%s%s\s*,\s*%s%s\s*,\s*%s%s\s*\)'] + rgb_matches[1:6]
+        \ [ '<rgb\(\s*%s%s\s*,\s*%s%s\s*,\s*%s%s\s*\)'] + rgb_matches[1:6]
       \ )
 
   return [sz_pat, lColor]
@@ -284,7 +284,7 @@ function! s:HslColor(color_text_in) "{{{2
   " BUILD HIGHLIGHT PATTERN
   let sz_pat = call(
         \ 'printf',
-        \ [ '\v<hsl\(\s*%s\s*,\s*%s\%%\s*,\s*%s\%%\s*\)'] + hsl_matches[1:3]
+        \ [ '<hsl\(\s*%s\s*,\s*%s\%%\s*,\s*%s\%%\s*\)'] + hsl_matches[1:3]
       \ )
 
   return [sz_pat, lColor]
@@ -441,9 +441,7 @@ function! s:ProcessMatch(match)
   exec join(['hi', group, 'guifg=#'.fg, 'guibg=#'.hex_color], ' ')
 
   " INSERT MATCH PATTERN FOR HIGHLIGHT
-  " TODO: make sure these stay lowercase
-  " TODO: minimize stored matches : see getwininfo(), clrzr_matches
-  let w:clrzr_matches[pat] = matchadd(group, pat)
+  let w:clrzr_matches[pat] = matchadd(group, '\v\c' . pat)
 
 endfunction
 
@@ -515,7 +513,9 @@ function! s:EnableWindow()
 
   call s:Debug(['ENABLE', win_getid()])
 
-  " TODO: ' | sort | uniq'
+  "let awk_cmd = join(['/usr/bin/awk', '-f', s:CLRZR_AWK_SCRIPT_PATH], ' ')
+  "let w:clrzr_awk_job = job_start(['/bin/sh', '-c', awk_cmd, '|', 'sort', '|', 'uniq'], {
+
   let w:clrzr_awk_job = job_start(['awk', '-f', s:CLRZR_AWK_SCRIPT_PATH], {
         \ 'in_mode': 'nl',
         \ 'out_mode': 'nl',

@@ -20,7 +20,7 @@ BEGIN {
 }
 
 {
-	szLine = $1
+	szLine = tolower($1)
 	while( 1 ) {
 
 		match(szLine, rExpr)
