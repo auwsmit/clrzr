@@ -493,15 +493,10 @@ endfunction
 
 
 function! s:AwkOut(chan, msg)
-
-  " GET WINDOW ID FROM CHANNEL
-  let c_info = ch_info(a:chan)
-  let win_id = g:clrzr_chanid2winid[c_info.id]
-
-  " CALL COLOR MATCHER IN THE CORRECT WINDOW
+  " SEND a:msg TO COLOR MATCHER FOR THE CORRECT WINDOW
+  let win_id = g:clrzr_chanid2winid[a:chan]
   call win_execute(win_id, 'call s:ProcessMatch(a:msg)')
   return
-
 endfunction
 
 
@@ -535,9 +530,7 @@ function! s:EnableWindow()
     unlet w:clrzr_awk_chan
   endif
 
-  let c_info = ch_info(w:clrzr_awk_chan)
-  let g:clrzr_chanid2winid[c_info.id] = win_getid()
-
+  let g:clrzr_chanid2winid[w:clrzr_awk_chan] = win_getid()
   let w:clrzr_matches = {}
   call clrzr#ColorHighlight(0)
 
@@ -550,8 +543,7 @@ function! s:DisableWindow()
 
   " END JOB, REMOVE chan2winid MAPPING
   if exists('w:clrzr_awk_job')
-    let c_info = ch_info(w:clrzr_awk_chan)
-    call remove(g:clrzr_chanid2winid, c_info.id)
+    call remove(g:clrzr_chanid2winid, w:clrzr_awk_chan)
     call job_stop(w:clrzr_awk_job)
   endif
 
@@ -619,16 +611,20 @@ endfunction
 
 function! clrzr#Enable()
 
-  augroup Colorizer
+  augroup Clrzr
 
     autocmd!
 
     " NOTE: for event investigations
     " if 0
+    "   autocmd WinNew * call s:SnoopEvent('WinNew')
+    "   autocmd WinEnter * call s:SnoopEvent('WinEnter')
     "   autocmd BufReadPost * call s:SnoopEvent('BufReadPost')
     "   autocmd FileReadPost * call s:SnoopEvent('FileReadPost')
     "   autocmd StdinReadPost * call s:SnoopEvent('StdinReadPost')
-    "   " ...
+    "   autocmd FileChangedShellPost * call s:SnoopEvent('FileChangedShellPost')
+    "   autocmd ShellFilterPost * call s:SnoopEvent('ShellFilterPost')
+    "   autocmd ColorScheme * call s:SnoopEvent('ColorScheme')
     " endif
 
     " HIGHLIGHTS ARE PER-WINDOW, SO RE-BUILD HIGHLIGHTS,
@@ -638,11 +634,8 @@ function! clrzr#Enable()
     " RESCAN ON WINDOW SWITCH (case: edit to one buffer in mulitple splits)
     autocmd WinEnter * call clrzr#ColorHighlight(0)
 
-    " TODO: what about BufEnter? is it worth it?
-
     " REBUILD HIGHLIGHTS AFTER READS
-    autocmd BufReadPost,FileReadPost,StdinReadPost,FileChangedShellPost
-          \ * call clrzr#ColorHighlight(0)
+    autocmd BufReadPost,FileReadPost,StdinReadPost,FileChangedShellPost * call clrzr#ColorHighlight(0)
 
     " NOTE: FilterReadPost isn't triggered when `shelltemp` is off,
     "       but ShellFilterPost is
@@ -653,8 +646,12 @@ function! clrzr#Enable()
     " NOTE: refreshes all windows in case bg color changed
     autocmd ColorScheme * call clrzr#ColorHighlight(1)
 
-    " NOTE: I don't care about updates while a popup is open, so just TCI.
-    autocmd TextChangedI * call s:PreviewColorInLine('.', '.')
+    " TODO: allowed filetypes list?
+    " TODO: sign_column (bigger pls, :h sign-commands)?
+    " TODO: matchaddpos() instead of matchadd()?
+
+    autocmd TextChangedI * call s:TextChanged()
+    autocmd InsertLeave * call s:InsertLeave()
 
   augroup END
 
@@ -663,12 +660,36 @@ function! clrzr#Enable()
 endfunction
 
 
+" UPDATE EDITED LINE RANGE AFTER LEAVING INSERT MODE
+function! s:InsertLeave()
+  if exists('w:clrzr_min_max') && (type(w:clrzr_min_max) == v:t_list)
+    call call('s:PreviewColorInLine', w:clrzr_min_max)
+    unlet w:clrzr_min_max
+  endif
+endfunction
+
+
+" TRACK RANGE OF EDITED LINES IN INSERT MODE
+" FOR DELAYED UPDATE
+function! s:TextChanged()
+  let pos = line('.')
+  if !exists('w:clrzr_min_max') || (type(w:clrzr_min_max) != v:t_list)
+    let w:clrzr_min_max = [pos,pos]
+  endif
+  if pos < w:clrzr_min_max[0]
+    let w:clrzr_min_max[0] = pos
+  elseif pos > w:clrzr_min_max[1]
+    let w:clrzr_min_max[1] = pos
+  endif
+endfunction
+
+
 " REMOVE AUTOGROUP & CLEAR HIGHLIGHTS ACROSS ALL WINDOWS
 function! clrzr#Disable()
-  augroup Colorizer
+  augroup Clrzr
     au!
   augroup END
-  augroup! Colorizer
+  augroup! Clrzr
   call s:ForeachWindow(function('s:DisableWindow'))
 endfunction
 
