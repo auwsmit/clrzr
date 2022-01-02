@@ -38,9 +38,9 @@ command! ClrzrOff     call clrzr#Disable()
 command! ClrzrAposTog call clrzr#AlphaPosToggle()
 command! ClrzrRefresh call clrzr#Refresh()
 
-nnoremap <leader>C :ClrzrOn<CR>
-nnoremap <leader>V :ClrzrOff<CR>
-nnoremap <leader>R :ClrzrRefresh<CR>
+"nnoremap <leader>C :ClrzrOn<CR>
+"nnoremap <leader>V :ClrzrOff<CR>
+"nnoremap <leader>R :ClrzrRefresh<CR>
 
 if !exists('g:clrzr_startup') || g:clrzr_startup
   call clrzr#Enable()
