@@ -16,6 +16,7 @@ set cpo&vim
 " - CTRL-W n for new split
 " - open multiple, turn off, turn on
 " - awk vs unicode.  (line2byte, byte2line?)
+" - change colors, or enable/disable, with two views into same buffer to reproduce E966
 " TODO: allowed filetypes list?
 " TODO: sign_column (bigger pls, :h sign-commands)?
 " TODO: option to refresh current line on SafeState?
@@ -299,24 +300,25 @@ function! s:IsEnabled()
 endfunction
 
 
-" BUILDS HIGHLIGHTS (COLORS+PATTERNS) FOR THE CURRENT BUFFER
-" FROM l_first TO l_last
-function! s:PreviewColorInLine(l_first, l_last) "{{{1
+" BUILDS TEXTPROPS (COLORS+PATTERNS) FOR THE CURRENT BUFFER
+function! s:RebuildTextProps(n_buf)
 
-  call s:Debug(['PCIL', a:l_first, a:l_last])
   if !s:IsEnabled() | return | endif
 
-  " SKIP PROCESSING NON_EXISTENT BUFFERS
-  let n_buf = bufnr()
-  if n_buf < 0 | return | endif
-
   " SKIP PROCESSING HELPFILES (usually large)
-  if getbufvar('%', '&syntax') ==? 'help' | return | endif
+  if getbufvar(a:n_buf, '&syntax') ==? 'help' | return | endif
 
-  let l_range = sort([
-        \ (type(a:l_first) == v:t_string) ? line(a:l_first) : a:l_first,
-        \ (type(a:l_last) == v:t_string) ? line(a:l_last) : a:l_last,
-      \ ])
+  " SKIP UNLOADED AND/OR UNLISTED BUFFERS
+  let lBufs = getbufinfo(a:n_buf)
+  if empty(lBufs) | return | endif
+
+  let b_info = lBufs[0]
+  if !(b_info.loaded) || !(b_info.listed)
+    return
+  endif
+
+  " GET LINE PROCESSING RANGE
+  let l_range = [1, b_info.linecount]
 
   " ONLY PARSE UP TO g:clrzr_maxlines
   let n_maxlines = get(g:, 'clrzr_maxlines', -1)
@@ -327,14 +329,14 @@ function! s:PreviewColorInLine(l_first, l_last) "{{{1
   endif
 
   " GET LINES FROM CURRENT BUFFER
-  let lines = getline(l_range[0], l_range[1])
+  let lines = getbufline(a:n_buf, l_range[0], l_range[1])
   if empty(lines) | return | endif
 
   " CACHE CURRENT BACKGROUND COLOR FOR ALPHA BLENDING
   let s:rgb_bg = s:RgbBgColor()
 
   " CLEAR PROPS FOR UPDATE RANGE
-  call prop_clear(l_range[0], l_range[1])
+  call prop_clear(l_range[0], l_range[1], {'bufnr': a:n_buf})
 
   " WRITE LINES TO AWK CHANNEL
   let line_no = l_range[0]
@@ -343,7 +345,7 @@ function! s:PreviewColorInLine(l_first, l_last) "{{{1
     if sts == 'open'
       call s:Debug(['PCIL: WRITE', len(lines)])
       for line in lines
-        call ch_sendraw(s:awk_chan, n_buf . "\t" . line_no . "\t" . line . "\n")
+        call ch_sendraw(s:awk_chan, a:n_buf . "\t" . line_no . "\t" . line . "\n")
         let line_no += 1
       endfor
       call ch_sendraw(s:awk_chan, "--END--\n")
@@ -483,10 +485,17 @@ endfunction
 " ---------------------------  EXPOSED COMMANDS  ---------------------------
 
 
+function! clrzr#RefreshAllBuffers()
+  let bufs = getbufinfo()
+  for d_buf in bufs
+    call s:RebuildTextProps(d_buf.bufnr)
+  endfor
+endfunction
+
+
 function! clrzr#Refresh()
-  let n_end = line('$')
-  call s:Debug(['REFRESH', n_end])
-  call s:PreviewColorInLine(1, n_end)
+  let buf = bufnr()
+  call s:RebuildTextProps(buf)
 endfunction
 
 
@@ -556,9 +565,8 @@ function! clrzr#Enable()
   else
     let s:clrzr_on = 1
 
-    " REFRESH ALL BUFFERS ON RE-ENABLE
+    " REFRESH ALL EXISTING BUFFERS ON RE-ENABLE
     " LEAVE THIS TO AUTOCMDS FOR FIRST RUN
-    " I believe autocmds & manuals were troubling each other...
     if exists('s:first_ran')
       call clrzr#RefreshAllBuffers()
     else
@@ -607,15 +615,7 @@ function! clrzr#Enable()
       " FORCE-REBUILD HIGHLIGHTS AFTER COLORSCHEME CHANGE
       " (to re-blend alpha colors with new background color)
       " NOTE: refreshes all windows in case bg color changed
-
-      " TODO: textprop error on bufdo from autocmd
-      " change colors, or enable/disable,
-      " with two views into same buffer to reproduce
-      " E966
       autocmd ColorScheme * call clrzr#RefreshAllBuffers()
-" 	:let timer = timer_start(500,
-" 			\ {-> execute("echo 'Handler called'", "")},
-" 			\ {'repeat': 3})
 
       " REFRESH ON NORMAL MODE CHANGES
       autocmd TextChanged * call clrzr#Refresh()
@@ -642,18 +642,11 @@ function! s:RefreshIfDirty()
 endfunction
 
 
-function! s:RemoveClrzrKeys(dict)
-  for wk in keys(a:dict)
-    if match(wk, '^clrzr_') > -1
-      call remove(a:dict, wk)
-    endif
-  endfor
-endfunction
-
-
-function! s:ResetBuffer()
-  call prop_clear(1, line('$'))
-  call s:RemoveClrzrKeys(b:)
+" REMOVE TEXTPROPS & clrzr_ VARS FROM BUFFER
+function! s:ClearBufferProps(bufinfo)
+  let bnum = a:bufinfo.bufnr
+  call prop_clear(1, a:bufinfo.linecount, {'bufnr': bnum})
+  call setbufvar(bnum, 'clrzr_hex_alpha_first', 0)
 endfunction
 
 
@@ -675,17 +668,11 @@ function! clrzr#Disable()
   endif
 
   " REMOVE clrzr_ STATE
-  let n_buf = bufnr()
-  bufdo call s:ResetBuffer()
-  if n_buf > -1 | execute n_buf . 'buffer' | endif
+  let bufs = getbufinfo()
+  for d_buf in bufs
+    call s:ClearBufferProps(d_buf)
+  endfor
 
-endfunction
-
-
-function! clrzr#RefreshAllBuffers()
-  let n_buf = bufnr()
-  bufdo call clrzr#Refresh()
-  if n_buf > -1 | execute n_buf . 'buffer' | endif
 endfunction
 
 
