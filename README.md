@@ -35,8 +35,9 @@ to blend with.
 ```
 Rebuild helptags with `helptags ALL`, then see `:help clrzr` for more options.
 
-*NOTE:* `clrzr` requires a copy of `awk` that is callable from your system path.
+*NOTE:* `clrzr` requires a copy of `awk`, callable from your system path.
 This is used to speed up pattern extraction.  Almost any version will do.
+On Unix/Linux/Mac, it is probably already intstalled.
 
 ### True-Color Support
 
