@@ -347,7 +347,7 @@ endfunction
 
 
 " PLUGIN IS EFFECTIVELY OFF FOR THE CURRENT WINDOW
-" WHEN `w:clrzr_matches` IS NOT A LIST
+" WHEN `w:clrzr_matches` IS NOT A DICT
 function! s:IsEnabledInWindow()
   return exists('w:clrzr_matches') && (type(w:clrzr_matches) == v:t_dict)
 endfunction
@@ -408,7 +408,6 @@ function! s:ProcessMatch(match)
 
   if !exists('w:clrzr_matches_next')
     let w:clrzr_matches_next = {}
-    echomsg ["ADD NEXT"]
   endif
 
   if a:match == '--END--'
