@@ -35,6 +35,9 @@ to blend with.
 ```
 Rebuild helptags with `helptags ALL`, then see `:help clrzr` for more options.
 
+*NOTE:* `clrzr` requires a copy of `awk` that is callable from your system path.
+This is used to speed up pattern extraction.  Almost any version will do.
+
 ### True-Color Support
 
 Works in gVim or any terminal with true-color support.  If your terminal is true-color, but

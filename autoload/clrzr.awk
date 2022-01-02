@@ -18,7 +18,7 @@ BEGIN {
 		"(hsl|hsla)\\(" rSpc rFlt cma rPct cma rPct "(" cma rFltOrPct ")?" rSpc "\\)" \
 	")"
 
-	rLineNo = "^" rSpc "[0-9]+\t"
+	rNumPfx = "^" rSpc "[0-9]+\t"
 }
 
 {
@@ -29,28 +29,30 @@ BEGIN {
 
 		szLine = tolower($1)
 
-		# GET LINE#
-		match(szLine, rLineNo)
-		if( RLENGTH >= 0 ) {
+		# BUF#
+		match(szLine, rNumPfx)
+		szBufNo = substr(szLine, RSTART, RLENGTH - 1)
+		szLine = substr(szLine, RSTART + RLENGTH)
 
-			szLineNo = substr(szLine, RSTART, RLENGTH - 1)
-			szLine = substr(szLine, RSTART + RLENGTH)
-			colAbs = 0
+		# LINE#
+		match(szLine, rNumPfx)
+		szLineNo = substr(szLine, RSTART, RLENGTH - 1)
+		szLine = substr(szLine, RSTART + RLENGTH)
 
-			# GET COLORS WITHIN LINE
-			while( 1 ) {
+		# GET COLORS WITHIN LINE
+		colAbs = 0
+		while( 1 ) {
 
-				match(szLine, rExpr)
-				colAbs += RSTART
+			match(szLine, rExpr)
+			colAbs += RSTART
 
-				if( RLENGTH < 0 ) {
-					break
-				}
-
-				printf "%s|%d|%d|%s\n", szLineNo, colAbs, RLENGTH, substr(szLine, RSTART, RLENGTH)
-				colAbs += RLENGTH - 1
-				szLine = substr(szLine, RSTART + RLENGTH)
+			if( RLENGTH < 0 ) {
+				break
 			}
+
+			printf "%s|%s|%d|%d|%s\n", szBufNo, szLineNo, colAbs, RLENGTH, substr(szLine, RSTART, RLENGTH)
+			colAbs += RLENGTH - 1
+			szLine = substr(szLine, RSTART + RLENGTH)
 		}
 	}
 

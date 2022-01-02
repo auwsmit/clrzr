@@ -10,25 +10,37 @@
 " Usage:
 "
 
-" Reload guard and 'compatible' handling {{{1
-if exists("loaded_clrzr") || v:version < 700 || !(has('termguicolors') && &termguicolors)
+" Reload guard and 'compatible' handling
+if exists("loaded_clrzr") | finish | endif
+
+if !has('textprop')
+  echoerr 'clrzr disabled: +textprop Vim feature not found'
   finish
 endif
+
+if !(has('termguicolors') && &termguicolors)
+  echoerr 'clrzr disabled: termguicolors not enabled and/or available'
+  finish
+endif
+
+if !exists('##TextChanged')
+  echoerr 'clrzr disabled: TextChanged autocmd not found'
+  finish
+endif
+
 let loaded_clrzr = 1
 
 let s:save_cpo = &cpo
 set cpo&vim
 
-"Define commands {{{1
-if !exists('g:clrzr_maxlines')
-  let g:clrzr_maxlines = -1
-endif
-
 command! ClrzrOn      call clrzr#Enable()
 command! ClrzrOff     call clrzr#Disable()
-command! ClrzrAposTog call clrzr#AlphaPosToggleWindow()
+command! ClrzrAposTog call clrzr#AlphaPosToggle()
 command! ClrzrRefresh call clrzr#Refresh()
-command! ClrzrTog     call clrzr#ToggleWindow()
+
+nnoremap <leader>C :ClrzrOn<CR>
+nnoremap <leader>V :ClrzrOff<CR>
+nnoremap <leader>R :ClrzrRefresh<CR>
 
 if !exists('g:clrzr_startup') || g:clrzr_startup
   call clrzr#Enable()

@@ -18,17 +18,8 @@ This plugin defines three commands:
 
   *:ClrzrOn*      - enable color highlighting in all windows
   *:ClrzrOff*     - disable color highlighting in all windows
-  *:ClrzrAposTog* - toggle alpha position for hex colors in current window
-  *:ClrzrRefresh* - refresh highlights in current window
-  *:ClrzrTog*     - toggle highlights in current window
-
-                                                     *'g:clrzr_fgcontrast'*
-To use solid color highlight, set this in your vimrc (later change won't
-probably take effect unless you use ':ClrzrRefresh' to force update):
-
-  let g:clrzr_fgcontrast = -1
-
-Set it to 0 or 1 to use a softened foregroud color.
+  *:ClrzrAposTog* - toggle alpha position for hex colors in current buffer
+  *:ClrzrRefresh* - refresh highlights in current buffer
 
                                                         *'g:clrzr_startup'*
 If you don't want to enable clrzr at startup, set the following:
