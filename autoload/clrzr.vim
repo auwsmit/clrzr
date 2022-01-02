@@ -49,7 +49,7 @@ endfunction
 
 " WRITE AUTOCMD EVENTS TO QUICKFIX LIST (for event inspection)
 function! s:SnoopEvent(evt)
-  echomsg [bufnr('%'), win_getid(), a:evt]
+  echomsg [bufnr('%'), win_getid(), a:evt, v:event]
 endfunction
 
 
@@ -347,7 +347,7 @@ endfunction
 
 
 " PLUGIN IS EFFECTIVELY OFF FOR THE CURRENT WINDOW
-" WHEN `w:clrzr_matches` IS NOT A DICT
+" WHEN `w:clrzr_matches` IS NOT A LIST
 function! s:IsEnabledInWindow()
   return exists('w:clrzr_matches') && (type(w:clrzr_matches) == v:t_dict)
 endfunction
@@ -381,13 +381,16 @@ function! s:PreviewColorInLine(l_first, l_last) "{{{1
   let s:rgb_bg = s:RgbBgColor()
 
   " WRITE LINES TO AWK CHANNEL
+  let line_no = l_range[0]
   if exists('w:clrzr_awk_chan')
     let sts = ch_status(w:clrzr_awk_chan)
     if sts == 'open'
       call s:Debug(['WRITE LINES', len(lines), 'WIN', win_getid(), w:clrzr_awk_chan])
       for line in lines
-        call ch_sendraw(w:clrzr_awk_chan, line . "\n")
+        call ch_sendraw(w:clrzr_awk_chan, line_no . "\t" . line . "\n")
+        let line_no += 1
       endfor
+      call ch_sendraw(w:clrzr_awk_chan, "--END--\n")
     else
       echomsg "AWK CHANNEL STATUS = " . sts
     endif
@@ -403,20 +406,42 @@ function! s:ProcessMatch(match)
 
   if !s:IsEnabledInWindow() | return | endif
 
+  if !exists('w:clrzr_matches_next')
+    let w:clrzr_matches_next = {}
+    echomsg ["ADD NEXT"]
+  endif
+
+  if a:match == '--END--'
+
+    " DELETE REMAINING ITEMS IN OLD MAP
+    call s:ClearWindow()
+
+    " UPDATE TO NEW MAP
+    let w:clrzr_matches = w:clrzr_matches_next
+    unlet w:clrzr_matches_next
+
+    return
+
+  endif
+
+  let lParts = split(a:match, '|')
+  if len(lParts) < 4 | return | endif
+
   " EXTRACT COLOR INFORMATION FROM SYNTAX
   " RETURNS [syntax_pattern, rgb_color_list]
+  let color_text = lParts[3]
   let pat = ''
   let rgb_color = []
-  if a:match[0] == '#' || a:match[0] == '0'
-    let [pat, rgb_color] = s:HexCode(a:match, s:rgb_bg)
-  elseif a:match[0:3] ==? 'rgba'
-    let [pat, rgb_color] = s:AlphaColor(function('s:RgbColor'), 'rgb', 'rgba', a:match, s:rgb_bg)
-  elseif a:match[0:3] ==? 'hsla'
-    let [pat, rgb_color] = s:AlphaColor(function('s:HslColor'), 'hsl', 'hsla', a:match, s:rgb_bg)
-  elseif a:match[0:2] ==? 'rgb'
-    let [pat, rgb_color] = s:RgbColor(a:match)
-  elseif a:match[0:2] ==? 'hsl'
-    let [pat, rgb_color] = s:HslColor(a:match)
+  if color_text[0] == '#' || color_text[0] == '0'
+    let [pat, rgb_color] = s:HexCode(color_text, s:rgb_bg)
+  elseif color_text[0:3] ==? 'rgba'
+    let [pat, rgb_color] = s:AlphaColor(function('s:RgbColor'), 'rgb', 'rgba', color_text, s:rgb_bg)
+  elseif color_text[0:3] ==? 'hsla'
+    let [pat, rgb_color] = s:AlphaColor(function('s:HslColor'), 'hsl', 'hsla', color_text, s:rgb_bg)
+  elseif color_text[0:2] ==? 'rgb'
+    let [pat, rgb_color] = s:RgbColor(color_text)
+  elseif color_text[0:2] ==? 'hsl'
+    let [pat, rgb_color] = s:HslColor(color_text)
   else
     return
   endif
@@ -425,25 +450,47 @@ function! s:ProcessMatch(match)
     return
   endif
 
-  " FOR NEW PATTERNS
-  if has_key(w:clrzr_matches, pat) | return | endif
-
   " NOTE: pattern & color must be tracked independently, since
   "       multiple alpha patterns may map to the same highlight color
   let hex_color = call('printf', ['%02x%02x%02x'] + rgb_color)
 
-  " INSERT HIGHLIGHT
-  " NOTE: always do this (even when :hl group exists) to accommodate
-  "       :colorscheme changes, since highlight groups are never
-  "       truly deleted -- there goes my hlexists() optimization
-  let group = 'Clrzr' . hex_color
-  let fg = g:clrzr_fgcontrast < 0 ? hex_color : s:FGforBGList(rgb_color)
-  exec join(['hi', group, 'guifg=#'.fg, 'guibg=#'.hex_color], ' ')
+  " NOTE [line, col, width]
+  let lPos = map(lParts[0:2], {_,v -> str2nr(trim(v))})
+  let cache_key = join(lPos + [hex_color], '_')
 
-  " INSERT MATCH PATTERN FOR HIGHLIGHT
-  let w:clrzr_matches[pat] = matchadd(group, '\v\c' . pat)
+  " HIGHLIGHT EXISTS: copy into new map, skip highlight commands, delete from old map
+  if has_key(w:clrzr_matches, cache_key)
+
+    let w:clrzr_matches_next[cache_key] = w:clrzr_matches[cache_key]
+    call remove(w:clrzr_matches, cache_key)
+
+  " NEW HIGHLIGHT: add, copy into new map
+  elseif !has_key(w:clrzr_matches_next, cache_key)
+
+    " INSERT HIGHLIGHT
+    " NOTE: always do this (even when :hl group exists) to accommodate
+    "       :colorscheme changes, since highlight groups are never
+    "       truly deleted -- there goes my hlexists() optimization
+    let group = 'Clrzr' . hex_color
+    let guifg = g:clrzr_fgcontrast < 0 ? 'fg' : ('#' . s:FGforBGList(rgb_color))
+    let cmd_highlight = [
+          \ 'highlight',
+          \ group,
+          \ 'guibg=#' . hex_color,
+          \ 'guifg=' . guifg,
+        \]
+          " \ 'guifg=#' .
+    execute join(cmd_highlight, ' ')
+
+    " INSERT MATCH PATTERN FOR HIGHLIGHT
+    let w:clrzr_matches_next[cache_key] = matchaddpos(group, [lPos])
+
+  endif
 
 endfunction
+
+
+" ---------------------------  WINDOW FUNCTIONS  ---------------------------
 
 
 function s:ForeachWindow(Func)
@@ -453,24 +500,18 @@ function s:ForeachWindow(Func)
     call win_execute(inf.winid, 'call a:Func()')
   endfor
 
-  " let save_tab = tabpagenr()
-  " let save_win = winnr()
-  " tabdo windo call a:Func()
-  " execute 'tabn ' . save_tab
-  " execute save_win . 'wincmd w'
-
 endfunction
 
 
 " CLEAR HIGHLIGHTS IN CURRENT WINDOW
-function! s:ClearWindow() "{{{1
+function! s:ClearWindow()
 
   if !s:IsEnabledInWindow() | return | endif
 
   " DELETE MATCHES
-  for i in values(w:clrzr_matches)
+  for match_key in keys(w:clrzr_matches)
     try
-      call matchdelete(i)
+      call matchdelete(w:clrzr_matches[match_key])
     catch /.*/
       " matches have been cleared in other ways, e.g. user has called clearmatches()
     endtry
@@ -481,10 +522,24 @@ function! s:ClearWindow() "{{{1
 endfunction
 
 
+function! s:AwkOut(chan, msg)
+
+  " SEND a:msg TO COLOR MATCHER FOR THE CORRECT WINDOW
+  if exists('g:clrzr_chanid2winid')
+    let chanid = string(a:chan)
+    if has_key(g:clrzr_chanid2winid, chanid)
+      call win_execute(g:clrzr_chanid2winid[chanid], 'call s:ProcessMatch(a:msg)')
+    endif
+  endif
+
+endfunction
+
+
 function! s:AwkErr(chan, msg)
   " TODO: disable window w/ error
   echomsg ['ERR', a:msg, 'WIN', win_getid()]
 endfunction
+
 
 function! s:AwkExit(job_id, exit)
   " TODO: disable window w/ error
@@ -492,47 +547,44 @@ function! s:AwkExit(job_id, exit)
 endfunction
 
 
-function! s:AwkOut(chan, msg)
-  " SEND a:msg TO COLOR MATCHER FOR THE CORRECT WINDOW
-  let win_id = g:clrzr_chanid2winid[a:chan]
-  call win_execute(win_id, 'call s:ProcessMatch(a:msg)')
-  return
-endfunction
-
-
 const s:CLRZR_AWK_SCRIPT_PATH = expand('<sfile>:p:h') . '/clrzr.awk'
 let g:clrzr_chanid2winid = {}
-function! s:EnableWindow()
+function! s:EnableWindow(b_reparse)
 
   if s:IsEnabledInWindow() | return | endif
 
   call s:Debug(['ENABLE', win_getid()])
 
-  "let awk_cmd = join(['/usr/bin/awk', '-f', s:CLRZR_AWK_SCRIPT_PATH], ' ')
-  "let w:clrzr_awk_job = job_start(['/bin/sh', '-c', awk_cmd, '|', 'sort', '|', 'uniq'], {
-
-  let w:clrzr_awk_job = job_start(['awk', '-f', s:CLRZR_AWK_SCRIPT_PATH], {
+  let job_opts = {
         \ 'in_mode': 'nl',
         \ 'out_mode': 'nl',
         \ 'err_mode': 'nl',
         \ 'err_cb': function('s:AwkErr'),
         \ 'exit_cb': function('s:AwkExit'),
         \ 'out_cb': function('s:AwkOut'),
-        \ 'noblock': 0,
         \ 'drop': 'auto',
-        \ 'stoponexit': 'term',
+        \ 'stoponexit': 'kill',
         \ 'pty': 0,
-      \ })
+      \ }
+
+  if has("patch-8.1.350")
+    let job_opts['noblock'] = 1
+  endif
+
+  let w:clrzr_awk_job = job_start(
+        \ ['awk', '-f', s:CLRZR_AWK_SCRIPT_PATH],
+        \ job_opts)
 
   " NOTE: string(chan) == 'channel fail' is error
   let w:clrzr_awk_chan = job_getchannel(w:clrzr_awk_job)
   if string(w:clrzr_awk_chan) == 'channel fail'
+    echomsg 'JOB CHANNEL FAILURE'
     unlet w:clrzr_awk_chan
+  else
+    let g:clrzr_chanid2winid[string(w:clrzr_awk_chan)] = win_getid()
+    let w:clrzr_matches = {}
+    if a:b_reparse | call s:ReparseWindow() | endif
   endif
-
-  let g:clrzr_chanid2winid[w:clrzr_awk_chan] = win_getid()
-  let w:clrzr_matches = {}
-  call clrzr#ColorHighlight(0)
 
 endfunction
 
@@ -543,7 +595,7 @@ function! s:DisableWindow()
 
   " END JOB, REMOVE chan2winid MAPPING
   if exists('w:clrzr_awk_job')
-    call remove(g:clrzr_chanid2winid, w:clrzr_awk_chan)
+    call remove(g:clrzr_chanid2winid, string(w:clrzr_awk_chan))
     call job_stop(w:clrzr_awk_job)
   endif
 
@@ -562,28 +614,12 @@ function! s:ReparseWindow()
 endfunction
 
 
-function! clrzr#ColorHighlight(rebuild_all)
-
-  if !s:IsEnabledInWindow() | return | endif
-
-  if a:rebuild_all || (g:clrzr_fgcontrast != s:saved_fgcontrast)
-    call s:ForeachWindow(function('s:ClearWindow'))
-  endif
-
-  if a:rebuild_all
-    call s:ForeachWindow(function('s:ReparseWindow'))
-  else
-    call s:ReparseWindow()
-  endif
-
-  let s:saved_fgcontrast = g:clrzr_fgcontrast
-
-endfunction
+" ---------------------------  EXPOSED COMMANDS  ---------------------------
 
 
 function! clrzr#Refresh()
   call s:DisableWindow()
-  call s:EnableWindow()
+  call s:EnableWindow(1)
 endfunction
 
 
@@ -592,7 +628,7 @@ function! clrzr#ToggleWindow()
   if s:IsEnabledInWindow()
     call s:DisableWindow()
   else
-    call s:EnableWindow()
+    call s:EnableWindow(1)
   endif
 endfunction
 
@@ -605,7 +641,7 @@ function! clrzr#AlphaPosToggleWindow()
     let w:clrzr_hex_alpha_first = 1
   endif
   call s:ClearWindow()
-  call clrzr#ColorHighlight(0)
+  call s:ReparseWindow()
 endfunction
 
 
@@ -616,70 +652,79 @@ function! clrzr#Enable()
     autocmd!
 
     " NOTE: for event investigations
-    " if 0
-    "   autocmd WinNew * call s:SnoopEvent('WinNew')
-    "   autocmd WinEnter * call s:SnoopEvent('WinEnter')
-    "   autocmd BufReadPost * call s:SnoopEvent('BufReadPost')
-    "   autocmd FileReadPost * call s:SnoopEvent('FileReadPost')
-    "   autocmd StdinReadPost * call s:SnoopEvent('StdinReadPost')
-    "   autocmd FileChangedShellPost * call s:SnoopEvent('FileChangedShellPost')
-    "   autocmd ShellFilterPost * call s:SnoopEvent('ShellFilterPost')
-    "   autocmd ColorScheme * call s:SnoopEvent('ColorScheme')
-    " endif
+    if 0
 
-    " HIGHLIGHTS ARE PER-WINDOW, SO RE-BUILD HIGHLIGHTS,
-    " EVEN WITH FILES PREVIOUSLY LOADED IN DIFFERENT WINDOWS
-    autocmd WinNew * call s:EnableWindow()
+      const probe = [
+            \ 'WinNew',
+            \ 'WinEnter',
+            \ 'BufReadPost',
+            \ 'FileReadPost',
+            \ 'StdinReadPost',
+            \ 'FileChangedShellPost',
+            \ 'ShellFilterPost',
+            \ 'ColorScheme',
+            \ 'InsertLeave',
+          \ ]
 
-    " RESCAN ON WINDOW SWITCH (case: edit to one buffer in mulitple splits)
-    autocmd WinEnter * call clrzr#ColorHighlight(0)
+      for evt in probe
+        let cmd = ['autocmd', evt, '* call s:SnoopEvent("' . evt . '")']
+        execute join(cmd, ' ')
+      endfor
 
-    " REBUILD HIGHLIGHTS AFTER READS
-    autocmd BufReadPost,FileReadPost,StdinReadPost,FileChangedShellPost * call clrzr#ColorHighlight(0)
+    else
 
-    " NOTE: FilterReadPost isn't triggered when `shelltemp` is off,
-    "       but ShellFilterPost is
-    autocmd ShellFilterPost * call clrzr#ColorHighlight(0)
+      " HIGHLIGHTS ARE PER-WINDOW, SO RE-BUILD HIGHLIGHTS,
+      " EVEN WITH FILES PREVIOUSLY LOADED IN DIFFERENT WINDOWS
+      " 0: Don't reparse syntax.  Will be followed by WinEnter
+      " which handles this.
+      autocmd WinNew * call s:EnableWindow(0)
 
-    " FORCE-REBUILD HIGHLIGHTS AFTER COLORSCHEME CHANGE
-    " (to re-blend alpha colors with new background color)
-    " NOTE: refreshes all windows in case bg color changed
-    autocmd ColorScheme * call clrzr#ColorHighlight(1)
+      " RESCAN ON WINDOW SWITCH (case: edit to one buffer in mulitple splits)
+      autocmd WinEnter * call s:ReparseWindow()
 
-    " TODO: allowed filetypes list?
-    " TODO: sign_column (bigger pls, :h sign-commands)?
-    " TODO: matchaddpos() instead of matchadd()?
+      " REBUILD HIGHLIGHTS AFTER READS
+      autocmd BufReadPost,FileReadPost,StdinReadPost,FileChangedShellPost * call s:ReparseWindow()
 
-    autocmd TextChangedI * call s:TextChanged()
-    autocmd InsertLeave * call s:InsertLeave()
+      " NOTE: FilterReadPost isn't triggered when `shelltemp` is off,
+      "       but ShellFilterPost is
+      autocmd ShellFilterPost * call s:ReparseWindow()
 
-  augroup END
+      " FORCE-REBUILD HIGHLIGHTS AFTER COLORSCHEME CHANGE
+      " (to re-blend alpha colors with new background color)
+      " NOTE: refreshes all windows in case bg color changed
+      autocmd ColorScheme * call s:ForeachWindow(function('clrzr#ResetWindow'))
 
-  call s:ForeachWindow(function('s:EnableWindow'))
+      " TODO: allowed filetypes list?
+      " TODO: sign_column (bigger pls, :h sign-commands)?
+      "
+      " TODO: investigate potential autocmd loop
+      " TODO: what to do on insert mode edits (moving highlights down
+      " correctly)
+      " getmatches, clearmatches, setmatches
+
+      " REFRESH ON NORMAL MODE CHANGES
+      autocmd TextChanged * call s:ReparseWindow()
+
+      " INSERT MODE: REFRESH WHEN DIRTY, CURSOR PAUSE & EXIT
+      autocmd InsertEnter * let w:clrzr_changedtick = b:changedtick
+      autocmd CursorHoldI * call s:RefreshIfDirty()
+      autocmd InsertLeave * call s:RefreshIfDirty()
+
+    augroup END
+
+    call s:ForeachWindow(function('s:EnableWindow', [1]))
+
+  endif
 
 endfunction
 
 
-" UPDATE EDITED LINE RANGE AFTER LEAVING INSERT MODE
-function! s:InsertLeave()
-  if exists('w:clrzr_min_max') && (type(w:clrzr_min_max) == v:t_list)
-    call call('s:PreviewColorInLine', w:clrzr_min_max)
-    unlet w:clrzr_min_max
-  endif
-endfunction
-
-
-" TRACK RANGE OF EDITED LINES IN INSERT MODE
-" FOR DELAYED UPDATE
-function! s:TextChanged()
-  let pos = line('.')
-  if !exists('w:clrzr_min_max') || (type(w:clrzr_min_max) != v:t_list)
-    let w:clrzr_min_max = [pos,pos]
-  endif
-  if pos < w:clrzr_min_max[0]
-    let w:clrzr_min_max[0] = pos
-  elseif pos > w:clrzr_min_max[1]
-    let w:clrzr_min_max[1] = pos
+function! s:RefreshIfDirty()
+  if exists('w:clrzr_changedtick')
+    if w:clrzr_changedtick != b:changedtick
+      call s:ReparseWindow()
+    endif
+    unlet w:clrzr_changedtick
   endif
 endfunction
 
@@ -693,6 +738,11 @@ function! clrzr#Disable()
   call s:ForeachWindow(function('s:DisableWindow'))
 endfunction
 
+
+function! clrzr#ResetWindow()
+  call s:ClearWindow()
+  call s:ReparseWindow()
+endfunction
 
 " ---------------------------  SETUP  ---------------------------
 

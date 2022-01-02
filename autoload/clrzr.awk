@@ -17,22 +17,44 @@ BEGIN {
 		"|" \
 		"(hsl|hsla)\\(" rSpc rFlt cma rPct cma rPct "(" cma rFltOrPct ")?" rSpc "\\)" \
 	")"
+
+	rLineNo = "^" rSpc "[0-9]+\t"
 }
 
 {
-	szLine = tolower($1)
-	while( 1 ) {
-
-		match(szLine, rExpr)
-
-		if( RLENGTH < 0 ) {
-			break
-		}
-
-		print substr(szLine, RSTART, RLENGTH)
-		fflush()
-		szLine = substr(szLine, RSTART + RLENGTH)
+	if( $1 == "--END--" ) {
+		print $1
 	}
+	else {
+
+		szLine = tolower($1)
+
+		# GET LINE#
+		match(szLine, rLineNo)
+		if( RLENGTH >= 0 ) {
+
+			szLineNo = substr(szLine, RSTART, RLENGTH - 1)
+			szLine = substr(szLine, RSTART + RLENGTH)
+			colAbs = 0
+
+			# GET COLORS WITHIN LINE
+			while( 1 ) {
+
+				match(szLine, rExpr)
+				colAbs += RSTART
+
+				if( RLENGTH < 0 ) {
+					break
+				}
+
+				printf "%s|%d|%d|%s\n", szLineNo, colAbs, RLENGTH, substr(szLine, RSTART, RLENGTH)
+				colAbs += RLENGTH - 1
+				szLine = substr(szLine, RSTART + RLENGTH)
+			}
+		}
+	}
+
+	fflush()
 }
 
 # GAWK: --sandbox
