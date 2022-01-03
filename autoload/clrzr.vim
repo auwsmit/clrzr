@@ -301,24 +301,22 @@ endfunction
 
 
 " BUILDS TEXTPROPS (COLORS+PATTERNS) FOR THE CURRENT BUFFER
-function! s:RebuildTextProps(n_buf)
+function! s:RebuildTextProps(bufinfo, l_first, l_last)
 
-  if !s:IsEnabled() | return | endif
-
-  " SKIP PROCESSING HELPFILES (usually large)
-  if getbufvar(a:n_buf, '&syntax') ==? 'help' | return | endif
+  if (!s:IsEnabled() || empty(a:bufinfo)) | return | endif
 
   " SKIP UNLOADED AND/OR UNLISTED BUFFERS
-  let lBufs = getbufinfo(a:n_buf)
-  if empty(lBufs) | return | endif
-
-  let b_info = lBufs[0]
-  if !(b_info.loaded) || !(b_info.listed)
+  if !(a:bufinfo.loaded) || !(a:bufinfo.listed)
     return
   endif
 
+  let n_buf = a:bufinfo.bufnr
+
+  " SKIP PROCESSING HELPFILES (usually large)
+  if getbufvar(n_buf, '&syntax') ==? 'help' | return | endif
+
   " GET LINE PROCESSING RANGE
-  let l_range = [1, b_info.linecount]
+  let l_range = sort([a:l_first, a:l_last])
 
   " ONLY PARSE UP TO g:clrzr_maxlines
   let n_maxlines = get(g:, 'clrzr_maxlines', -1)
@@ -329,14 +327,14 @@ function! s:RebuildTextProps(n_buf)
   endif
 
   " GET LINES FROM CURRENT BUFFER
-  let lines = getbufline(a:n_buf, l_range[0], l_range[1])
+  let lines = getbufline(n_buf, l_range[0], l_range[1])
   if empty(lines) | return | endif
 
   " CACHE CURRENT BACKGROUND COLOR FOR ALPHA BLENDING
   let s:rgb_bg = s:RgbBgColor()
 
   " CLEAR PROPS FOR UPDATE RANGE
-  call prop_clear(l_range[0], l_range[1], {'bufnr': a:n_buf})
+  call prop_clear(l_range[0], l_range[1], {'bufnr': n_buf})
 
   " WRITE LINES TO AWK CHANNEL
   let line_no = l_range[0]
@@ -345,7 +343,7 @@ function! s:RebuildTextProps(n_buf)
     if sts == 'open'
       call s:Debug(['PCIL: WRITE', len(lines)])
       for line in lines
-        call ch_sendraw(s:awk_chan, a:n_buf . "\t" . line_no . "\t" . line . "\n")
+        call ch_sendraw(s:awk_chan, n_buf . "\t" . line_no . "\t" . line . "\n")
         let line_no += 1
       endfor
       call ch_sendraw(s:awk_chan, "--END--\n")
@@ -488,14 +486,14 @@ endfunction
 function! clrzr#RefreshAllBuffers()
   let bufs = getbufinfo()
   for d_buf in bufs
-    call s:RebuildTextProps(d_buf.bufnr)
+    call s:RebuildTextProps(d_buf, 1, d_buf.linecount)
   endfor
 endfunction
 
 
 function! clrzr#Refresh()
-  let buf = bufnr()
-  call s:RebuildTextProps(buf)
+  let [d_buf] = getbufinfo(bufnr())
+  call s:RebuildTextProps(d_buf, 1, d_buf.linecount)
 endfunction
 
 
@@ -618,12 +616,11 @@ function! clrzr#Enable()
       autocmd ColorScheme * call clrzr#RefreshAllBuffers()
 
       " REFRESH ON NORMAL MODE CHANGES
-      autocmd TextChanged * call clrzr#Refresh()
+      autocmd TextChanged * call s:RefreshLastMod()
 
       " INSERT MODE: REFRESH WHEN DIRTY, CURSOR PAUSE & EXIT
-      autocmd InsertEnter * let b:clrzr_changedtick = b:changedtick
-      autocmd CursorHoldI * call s:RefreshIfDirty()
-      autocmd InsertLeave * call s:RefreshIfDirty()
+      autocmd CursorHoldI * call s:RefreshLastMod()
+      autocmd InsertLeave * call s:RefreshLastMod()
 
     augroup END
 
@@ -632,13 +629,11 @@ function! clrzr#Enable()
 endfunction
 
 
-function! s:RefreshIfDirty()
-  if exists('b:clrzr_changedtick')
-    if b:clrzr_changedtick != b:changedtick
-      call clrzr#Refresh()
-    endif
-    unlet b:clrzr_changedtick
-  endif
+function! s:RefreshLastMod()
+  let [d_buf] = getbufinfo(bufnr())
+  let pos_a = getpos("'[")
+  let pos_b = getpos("']")
+  call s:RebuildTextProps(d_buf, pos_a[1], pos_b[1])
 endfunction
 
 
