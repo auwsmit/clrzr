@@ -43,9 +43,11 @@ const s:CMMA = '\s*,\s*'
 
 function! s:WriteDebugBuf(object)
 
-  let s:debug_buf_num = bufnr('Test', 1)
-  call setbufvar(s:debug_buf_num, "&buflisted", 1)
-  call bufload(s:debug_buf_num)
+  if !exists('s:debug_buf_num')
+    let s:debug_buf_num = bufnr('Test', 1)
+    call setbufvar(s:debug_buf_num, "&buflisted", 1)
+    call bufload(s:debug_buf_num)
+  endif
 
   let nt = type(a:object)
   if (nt == v:t_string) || (nt == v:t_float) || (nt == v:t_number)
@@ -300,6 +302,16 @@ function! s:IsEnabled()
 endfunction
 
 
+function! s:RemoveProps(n_buf, l_first, l_last)
+  " call prop_clear(a:l_first, a:l_last, {'bufnr': a:n_buf})
+  let n_removed = prop_remove({
+        \ 'bufnr': a:n_buf,
+        \ 'id': 777,
+        \ 'all': 1,
+      \ }, a:l_first, a:l_last)
+  return n_removed
+endfunction
+
 " BUILDS TEXTPROPS (COLORS+PATTERNS) FOR THE CURRENT BUFFER
 function! s:RebuildTextProps(bufinfo, l_first, l_last)
 
@@ -314,6 +326,9 @@ function! s:RebuildTextProps(bufinfo, l_first, l_last)
 
   " SKIP PROCESSING HELPFILES (usually large)
   if getbufvar(n_buf, '&syntax') ==? 'help' | return | endif
+
+  " UPDATE LOCAL CHANGEDTICK TRACKER
+  call setbufvar(n_buf, 'clrzr_changedtick', getbufvar(n_buf, 'changedtick', -1))
 
   " GET LINE PROCESSING RANGE
   let l_range = sort([a:l_first, a:l_last])
@@ -334,7 +349,7 @@ function! s:RebuildTextProps(bufinfo, l_first, l_last)
   let s:rgb_bg = s:RgbBgColor()
 
   " CLEAR PROPS FOR UPDATE RANGE
-  call prop_clear(l_range[0], l_range[1], {'bufnr': n_buf})
+  call s:RemoveProps(n_buf, l_range[0], l_range[1])
 
   " WRITE LINES TO AWK CHANNEL
   let line_no = l_range[0]
@@ -475,6 +490,7 @@ function! s:ProcessMatch(match)
         \ 'bufnr': n_buf,
         \ 'length': n_length,
         \ 'type': group,
+        \ 'id': 777,
       \ })
 
 endfunction
@@ -582,9 +598,7 @@ function! clrzr#Enable()
 
       const probe = [
             \ 'TextChanged',
-            \ 'SafeState',
-            \ 'InsertEnter',
-            \ 'CursorHoldI',
+            \ 'TextChangedI',
             \ 'InsertLeave',
           \ ]
 "            \ 'WinNew',
@@ -616,12 +630,14 @@ function! clrzr#Enable()
       autocmd ColorScheme * call clrzr#RefreshAllBuffers()
 
       " REFRESH ON NORMAL MODE CHANGES
-      autocmd TextChanged * call s:RefreshLastMod()
+      autocmd TextChanged * call s:RefreshIfChangedtick()
 
       " INSERT MODE: REFRESH WHEN DIRTY, CURSOR PAUSE & EXIT
-      autocmd CursorHoldI * call s:RefreshLastMod()
-      autocmd InsertLeave * call s:RefreshLastMod()
+      autocmd InsertEnter * let b:clrzr_changedtick = b:changedtick
+      autocmd CursorHoldI * call s:RefreshIfChangedtick()
+      autocmd InsertLeave * call s:RefreshIfChangedtick()
 
+      " NOTE: InsertLeave, then TextChanged on visual insert
     augroup END
 
   endif
@@ -633,15 +649,33 @@ function! s:RefreshLastMod()
   let [d_buf] = getbufinfo(bufnr())
   let pos_a = getpos("'[")
   let pos_b = getpos("']")
-  call s:RebuildTextProps(d_buf, pos_a[1], pos_b[1])
+  if (pos_a[1] != pos_b[1]) || (pos_a[2] != pos_b[2])
+    "echomsg ['RLM', pos_a, pos_b, b:changedtick]
+    call s:RebuildTextProps(d_buf, pos_a[1], pos_b[1])
+  endif
+endfunction
+
+
+function! s:RefreshIfChangedtick()
+
+  if !exists('b:clrzr_changedtick')
+    let b:clrzr_changedtick = -1
+  endif
+
+  if b:clrzr_changedtick != b:changedtick
+    call s:RefreshLastMod()
+    let b:clrzr_changedtick = b:changedtick
+  endif
+
 endfunction
 
 
 " REMOVE TEXTPROPS & clrzr_ VARS FROM BUFFER
 function! s:ClearBufferProps(bufinfo)
-  let bnum = a:bufinfo.bufnr
-  call prop_clear(1, a:bufinfo.linecount, {'bufnr': bnum})
-  call setbufvar(bnum, 'clrzr_hex_alpha_first', 0)
+  let n_buf = a:bufinfo.bufnr
+  call s:RemoveProps(n_buf, 1, a:bufinfo.linecount)
+  call setbufvar(n_buf, 'clrzr_hex_alpha_first', 0)
+  call setbufvar(n_buf, 'clrzr_changedtick', -1)
 endfunction
 
 
