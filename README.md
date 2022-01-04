@@ -61,7 +61,7 @@ you are not seeing the colors, add the following lines to your `vimrc` and resta
 ```
 
 Sometimes, `cursorline` obscures the highlights added by `clrzr`.  Disable it to see
-colors as you type them.
+colors as you type them.  Very useful in combination with `CTRL-A` and `CTRL-X` (increment & decrement)!
 
 ### Origin
 
