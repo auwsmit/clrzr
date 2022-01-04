@@ -22,22 +22,29 @@ BEGIN {
 }
 
 {
-	if( $1 == "--END--" ) {
-		print $1
+	szLine = tolower($1)
+
+	# PREFIX: buf_no \t line_no \t lines_total \t
+
+	# BUF#
+	match(szLine, rNumPfx)
+	szBufNo = substr(szLine, RSTART, RLENGTH - 1)
+	szLine = substr(szLine, RSTART + RLENGTH)
+
+	# LINE#
+	match(szLine, rNumPfx)
+	szLineNo = substr(szLine, RSTART, RLENGTH - 1)
+	szLine = substr(szLine, RSTART + RLENGTH)
+
+	# LAST LINE#
+	match(szLine, rNumPfx)
+	szLastLineNo = substr(szLine, RSTART, RLENGTH - 1)
+	szLine = substr(szLine, RSTART + RLENGTH)
+
+	if( (szLine == "--begin--") || (szLine == "--end--") ) {
+		printf "%s|%s|0|%s|%s\n", szBufNo, szLineNo, szLastLineNo, szLine
 	}
 	else {
-
-		szLine = tolower($1)
-
-		# BUF#
-		match(szLine, rNumPfx)
-		szBufNo = substr(szLine, RSTART, RLENGTH - 1)
-		szLine = substr(szLine, RSTART + RLENGTH)
-
-		# LINE#
-		match(szLine, rNumPfx)
-		szLineNo = substr(szLine, RSTART, RLENGTH - 1)
-		szLine = substr(szLine, RSTART + RLENGTH)
 
 		# GET COLORS WITHIN LINE
 		colAbs = 0

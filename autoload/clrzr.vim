@@ -15,6 +15,8 @@ set cpo&vim
 " TODO: TESTS
 " - CTRL-W n for new split
 " - open multiple, turn off, turn on
+" - N-repeated paste
+" - multi-line insert (check textprop count)
 " - awk vs unicode.  (line2byte, byte2line?)
 " - change colors, or enable/disable, with two views into same buffer to reproduce E966
 " TODO: allowed filetypes list?
@@ -43,18 +45,15 @@ const s:CMMA = '\s*,\s*'
 
 function! s:WriteDebugBuf(object)
 
-  if !exists('s:debug_buf_num')
-    let s:debug_buf_num = bufnr('Test', 1)
-    call setbufvar(s:debug_buf_num, "&buflisted", 1)
-    call bufload(s:debug_buf_num)
+  let nt = type(a:object)
+  let sz_msg = ""
+  if (nt == v:t_string) || (nt == v:t_float) || (nt == v:t_number)
+    let sz_msg = string(a:object)
+  else
+    let sz_msg = js_encode(a:object)
   endif
 
-  let nt = type(a:object)
-  if (nt == v:t_string) || (nt == v:t_float) || (nt == v:t_number)
-    call appendbufline(s:debug_buf_num, '$', a:object)
-  else
-    call appendbufline(s:debug_buf_num, '$', js_encode(a:object))
-  endif
+  call writefile([sz_msg], "./clrzr.log", "as")
 
 endfunction
 
@@ -63,16 +62,13 @@ endfunction
 function! s:SnoopEvent(evt)
   let n_buf = bufnr()
   if n_buf == 1
-    call s:WriteDebugBuf([a:evt, 'BUF', n_buf, 'LN', line('.'), 'EVT', v:event])
+    call s:WriteDebugBuf([a:evt, 'BUF', n_buf, 'LN', line('.'), 'CT', b:changedtick])
   endif
 endfunction
 
 
 function! s:Debug(var)
-  if 0
-    let l_msg = a:var + ['BUF=' . bufnr(), 'ENBL=' . s:IsEnabled()]
-    echomsg join(l_msg, '|')
-  endif
+  if 0 | call s:WriteDebugBuf(var) | endif
 endfunction
 
 
@@ -303,13 +299,12 @@ endfunction
 
 
 function! s:RemoveProps(n_buf, l_first, l_last)
-  " call prop_clear(a:l_first, a:l_last, {'bufnr': a:n_buf})
-  let n_removed = prop_remove({
+  let firstlast = sort([a:l_first, a:l_last], 'f')
+  return prop_remove({
         \ 'bufnr': a:n_buf,
         \ 'id': 777,
         \ 'all': 1,
-      \ }, a:l_first, a:l_last)
-  return n_removed
+      \ }, firstlast[0], firstlast[1])
 endfunction
 
 " BUILDS TEXTPROPS (COLORS+PATTERNS) FOR THE CURRENT BUFFER
@@ -327,11 +322,8 @@ function! s:RebuildTextProps(bufinfo, l_first, l_last)
   " SKIP PROCESSING HELPFILES (usually large)
   if getbufvar(n_buf, '&syntax') ==? 'help' | return | endif
 
-  " UPDATE LOCAL CHANGEDTICK TRACKER
-  call setbufvar(n_buf, 'clrzr_changedtick', getbufvar(n_buf, 'changedtick', -1))
-
   " GET LINE PROCESSING RANGE
-  let l_range = sort([a:l_first, a:l_last])
+  let l_range = sort([a:l_first, a:l_last], 'f')
 
   " ONLY PARSE UP TO g:clrzr_maxlines
   let n_maxlines = get(g:, 'clrzr_maxlines', -1)
@@ -348,26 +340,29 @@ function! s:RebuildTextProps(bufinfo, l_first, l_last)
   " CACHE CURRENT BACKGROUND COLOR FOR ALPHA BLENDING
   let s:rgb_bg = s:RgbBgColor()
 
-  " CLEAR PROPS FOR UPDATE RANGE
-  call s:RemoveProps(n_buf, l_range[0], l_range[1])
-
   " WRITE LINES TO AWK CHANNEL
-  let line_no = l_range[0]
-  if exists('s:awk_chan')
-    let sts = ch_status(s:awk_chan)
-    if sts == 'open'
-      call s:Debug(['PCIL: WRITE', len(lines)])
-      for line in lines
-        call ch_sendraw(s:awk_chan, n_buf . "\t" . line_no . "\t" . line . "\n")
-        let line_no += 1
-      endfor
-      call ch_sendraw(s:awk_chan, "--END--\n")
-    else
-      echoerr "AWK CHANNEL STATUS = " . sts
-    endif
-  else
+  if !exists('s:awk_chan')
     echoerr "AWK CHANNEL NOT SET!"
+    return
   endif
+
+  let sts = ch_status(s:awk_chan)
+  if sts != 'open'
+    echoerr "AWK CHANNEL STATUS = " . sts
+    return
+  endif
+
+  let meta = [n_buf, l_range[0], l_range[1]]
+
+  call ch_sendraw(s:awk_chan, join(meta, "\t") . "\t--begin--\n")
+
+  for line in lines
+    call ch_sendraw(s:awk_chan, join(meta, "\t") . "\t" . line . "\n")
+    let meta[1] += 1
+  endfor
+
+  let meta[1] = meta[2]
+  call ch_sendraw(s:awk_chan, join(meta, "\t") . "\t--end--\n")
 
 endfunction
 
@@ -405,15 +400,15 @@ function! s:UnHlAlpha(text, n_col, n_length)
 
 endfunction
 
+
 " EXTRACTS COLOR DATA FROM MATCHES & CREATES HIGHLIGHT GROUPS
+" NOTE: this is a callback, & doesn't seem to play well with
+" typical local state variables like w: & b:.  that is why buffer
+" props are set/read explicitly (with a bufnr reference) &
+" metadata like bufnr & line are passed through awk
 function! s:ProcessMatch(match)
 
   if !s:IsEnabled() | return | endif
-
-  if a:match == '--END--'
-    " NOTE: can do end-of-batch work here if needed
-    return
-  endif
 
   " EXTRACT SOURCE INFORMATION FROM AWK OUTPUT
   let lParts = split(a:match, '|')
@@ -423,6 +418,21 @@ function! s:ProcessMatch(match)
   if n_buf < 0
     echoerr 'INVALID BUF'
     return
+  endif
+
+  " NOTE: for --begin--, n_line is firstline#, n_length is lastline#
+  if lParts[4] == '--begin--'
+
+    " CLEAR PROPS FOR UPDATE RANGE
+    call s:RemoveProps(n_buf, n_line, n_length)
+    return
+
+  " NOTE: for --end--, n_line is lastline#, n_length is lastline#
+  elseif lParts[4] == '--end--'
+
+    " NOTE: can do end-of-batch work here if needed
+    return
+
   endif
 
   " EXTRACT COLOR INFORMATION FROM SYNTAX
@@ -600,15 +610,8 @@ function! clrzr#Enable()
             \ 'TextChanged',
             \ 'TextChangedI',
             \ 'InsertLeave',
+            \ 'SafeState',
           \ ]
-"            \ 'WinNew',
-"            \ 'WinEnter',
-"            \ 'BufReadPost',
-"            \ 'FileReadPost',
-"            \ 'StdinReadPost',
-"            \ 'FileChangedShellPost',
-"            \ 'ShellFilterPost',
-"            \ 'ColorScheme',
 
       for evt in probe
         let cmd = ['autocmd', evt, '* call s:SnoopEvent("' . evt . '")']
@@ -630,14 +633,16 @@ function! clrzr#Enable()
       autocmd ColorScheme * call clrzr#RefreshAllBuffers()
 
       " REFRESH ON NORMAL MODE CHANGES
-      autocmd TextChanged * call s:RefreshIfChangedtick()
+      autocmd TextChanged * call s:RefreshDirtyRange()
 
       " INSERT MODE: REFRESH WHEN DIRTY, CURSOR PAUSE & EXIT
-      autocmd InsertEnter * let b:clrzr_changedtick = b:changedtick
-      autocmd CursorHoldI * call s:RefreshIfChangedtick()
-      autocmd InsertLeave * call s:RefreshIfChangedtick()
+      autocmd CursorHoldI * call s:RefreshDirtyRange()
+      autocmd InsertLeave * call s:RefreshDirtyRange()
 
-      " NOTE: InsertLeave, then TextChanged on visual insert
+      " NOTE: visual block insert:
+      " InsertLeave is after first line finished
+      " TextChanged is after others are filled-down
+
     augroup END
 
   endif
@@ -645,27 +650,21 @@ function! clrzr#Enable()
 endfunction
 
 
-function! s:RefreshLastMod()
-  let [d_buf] = getbufinfo(bufnr())
-  let pos_a = getpos("'[")
-  let pos_b = getpos("']")
-  if (pos_a[1] != pos_b[1]) || (pos_a[2] != pos_b[2])
-    "echomsg ['RLM', pos_a, pos_b, b:changedtick]
-    call s:RebuildTextProps(d_buf, pos_a[1], pos_b[1])
-  endif
-endfunction
+function! s:RefreshDirtyRange()
 
+  " NOTE: we get the same region on rapid N-copy pastes,
+  "       so we can't debounce (i.e. have to refresh immediately)
 
-function! s:RefreshIfChangedtick()
+  " GET CHANGE REGION, EXIT IF EMPTY
+  let pos = [ getpos("'["), getpos("']") ]
 
-  if !exists('b:clrzr_changedtick')
-    let b:clrzr_changedtick = -1
+  if (pos[0][1] == pos[1][1]) && (pos[0][2] == pos[1][2])
+    return
   endif
 
-  if b:clrzr_changedtick != b:changedtick
-    call s:RefreshLastMod()
-    let b:clrzr_changedtick = b:changedtick
-  endif
+  let n_buf = bufnr()
+  let [d_buf] = getbufinfo(n_buf)
+  call s:RebuildTextProps(d_buf, pos[0][1], pos[1][1])
 
 endfunction
 
@@ -675,7 +674,6 @@ function! s:ClearBufferProps(bufinfo)
   let n_buf = a:bufinfo.bufnr
   call s:RemoveProps(n_buf, 1, a:bufinfo.linecount)
   call setbufvar(n_buf, 'clrzr_hex_alpha_first', 0)
-  call setbufvar(n_buf, 'clrzr_changedtick', -1)
 endfunction
 
 
@@ -687,7 +685,7 @@ function! clrzr#Disable()
   augroup END
   augroup! Clrzr
 
-  if exists('s:clrzr_on') | unlet s:clrzr_on | endif
+  unlet! s:clrzr_on
 
   " END JOB, REMOVE chan2winid MAPPING
   if exists('s:awk_job')
