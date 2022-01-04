@@ -1,7 +1,5 @@
 # clrzr
 
-*NOTE*: check back tomorrow for a big improvement.
-
 A Vim plugin to accurately highlight common color representations.
 
 ### Screenshots
