@@ -1,4 +1,4 @@
-*clrzr.txt*                                    Color code highlighter.  v1.7
+*clrzr.txt*                                              Color Code Highlighter
 *Clrzr* *'clrzr'*
 ===============================================================================
 TRUE COLOR SUPPORT
