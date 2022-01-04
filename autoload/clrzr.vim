@@ -21,7 +21,6 @@ set cpo&vim
 " - change colors, or enable/disable, with two views into same buffer to reproduce E966
 " TODO: allowed filetypes list?
 " TODO: sign_column (bigger pls, :h sign-commands)?
-" TODO: option to refresh current line on SafeState?
 
 
 " ---------------------------  CONSTANTS  ---------------------------
@@ -632,12 +631,14 @@ function! clrzr#Enable()
       " NOTE: refreshes all windows in case bg color changed
       autocmd ColorScheme * call clrzr#RefreshAllBuffers()
 
-      " REFRESH ON NORMAL MODE CHANGES
+      " NORMAL MODE CHANGES
       autocmd TextChanged * call s:RefreshDirtyRange()
 
-      " INSERT MODE: REFRESH WHEN DIRTY, CURSOR PAUSE & EXIT
-      autocmd CursorHoldI * call s:RefreshDirtyRange()
+      " INSERT MODE CHANGES
       autocmd InsertLeave * call s:RefreshDirtyRange()
+
+      " UPDATE LINE UNDER CURSOR WHILE TYPING IN INSERT MODE
+      autocmd SafeState * call s:SafeStateUpdate()
 
       " NOTE: visual block insert:
       " InsertLeave is after first line finished
@@ -647,6 +648,16 @@ function! clrzr#Enable()
 
   endif
 
+endfunction
+
+
+function! s:SafeStateUpdate()
+  if mode(1) ==# 'i'
+    let n_buf = bufnr()
+    let line_cursor = line('.')
+    let [d_buf] = getbufinfo(n_buf)
+    call s:RebuildTextProps(d_buf, line_cursor, line_cursor)
+  endif
 endfunction
 
 

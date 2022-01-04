@@ -54,6 +54,15 @@ you are not seeing the colors, add the following lines to your `vimrc` and resta
   set termguicolors
 ```
 
+### Colors As You Type
+
+```vim
+	set nocursorline
+```
+
+Sometimes, `cursorline` obscures the highlights added by `clrzr`.  Disable it to see
+colors as you type them.
+
 ### Origin
 
 This version is based on https://github.com/lilydjwg/colorizer, also found as
