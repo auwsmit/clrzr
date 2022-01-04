@@ -57,7 +57,7 @@ you are not seeing the colors, add the following lines to your `vimrc` and resta
 ### Colors As You Type
 
 ```vim
-	set nocursorline
+   set nocursorline
 ```
 
 Sometimes, `cursorline` obscures the highlights added by `clrzr`.  Disable it to see
