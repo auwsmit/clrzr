@@ -2,6 +2,10 @@
 
 A Vim plugin to accurately highlight common color representations.
 
+### Asciicast
+
+[![asciicast](https://asciinema.org/a/460355.svg)](https://asciinema.org/a/460355)
+
 ### Screenshots
 
 ![screenshot](clrzr_screenshot.png)
