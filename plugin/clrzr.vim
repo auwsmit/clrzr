@@ -18,9 +18,11 @@ if !has('textprop')
   finish
 endif
 
-if !(has('termguicolors') && &termguicolors)
-  echoerr 'clrzr disabled: termguicolors not enabled and/or available'
-  finish
+if !has('gui_running')
+  if !(has('termguicolors') && &termguicolors)
+    echoerr 'clrzr disabled: termguicolors not enabled and/or available'
+    finish
+  endif
 endif
 
 if !exists('##TextChanged')

@@ -21,6 +21,7 @@ set cpo&vim
 " - change colors, or enable/disable, with two views into same buffer to reproduce E966
 " TODO: allowed filetypes list?
 " TODO: sign_column (bigger pls, :h sign-commands)?
+" TODO: color change operation
 
 
 " ---------------------------  CONSTANTS  ---------------------------
