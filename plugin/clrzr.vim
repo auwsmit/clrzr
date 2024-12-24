@@ -14,19 +14,19 @@
 if exists("loaded_clrzr") | finish | endif
 
 if !has('textprop')
-  echoerr 'clrzr disabled: +textprop Vim feature not found'
+  autocmd VimEnter * echo 'clrzr disabled: +textprop Vim feature not found'
   finish
 endif
 
 if !has('gui_running')
   if !(has('termguicolors') && &termguicolors)
-    echoerr 'clrzr disabled: termguicolors not enabled and/or available'
+    autocmd VimEnter * echo 'clrzr disabled: termguicolors not enabled and/or available'
     finish
   endif
 endif
 
 if !exists('##TextChanged')
-  echoerr 'clrzr disabled: TextChanged autocmd not found'
+  autocmd VimEnter * echo 'clrzr disabled: TextChanged autocmd not found'
   finish
 endif
 

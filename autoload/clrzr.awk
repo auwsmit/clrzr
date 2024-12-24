@@ -24,6 +24,9 @@ BEGIN {
 {
 	szLine = tolower($1)
 
+	# --characters-as-bytes / -b ?
+	# --posix
+
 	# PREFIX: buf_no \t line_no \t lines_total \t
 
 	# BUF#

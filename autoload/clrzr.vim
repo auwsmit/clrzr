@@ -299,12 +299,19 @@ endfunction
 
 
 function! s:RemoveProps(n_buf, l_first, l_last)
+
+  " ENSURE THAT BUFFER STILL EXISTS
+  let l_info = getbufinfo(a:n_buf)
+  if empty(l_info) | return 0 | endif
+
+  " REMOVE TEXTPROPS FROM LINES l_first TO l_last
   let firstlast = sort([a:l_first, a:l_last], 'f')
   return prop_remove({
         \ 'bufnr': a:n_buf,
         \ 'id': 777,
         \ 'all': 1,
       \ }, firstlast[0], firstlast[1])
+
 endfunction
 
 " BUILDS TEXTPROPS (COLORS+PATTERNS) FOR THE CURRENT BUFFER
